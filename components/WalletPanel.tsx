@@ -45,7 +45,7 @@ export const WalletPanel: React.FC<{ wallet: GameWallet }> = ({ wallet }) => {
       const t = await loadTrading();
       setStatus(await t.claimPaperCredit(wallet.key, wallet.address));
     } catch (e) {
-      setStatus(`Claim failed: ${e instanceof Error ? e.message.split('\n')[0] : String(e)}`);
+      setStatus(`Claim failed: ${e instanceof Error ? e.message.slice(0, 700) : String(e)}`);
     } finally {
       setBusy(false);
     }
