@@ -13,6 +13,7 @@ export const WalletPanel: React.FC<{ wallet: GameWallet }> = ({ wallet }) => {
   const [importOpen, setImportOpen] = useState(false);
   const [importText, setImportText] = useState('');
   const [copied, setCopied] = useState(false);
+  const [ownerText, setOwnerText] = useState('');
 
   const refreshBalance = useCallback(async () => {
     if (!wallet.address) return;
@@ -62,6 +63,30 @@ export const WalletPanel: React.FC<{ wallet: GameWallet }> = ({ wallet }) => {
     }
   };
 
+  const saveOwner = () => {
+    try {
+      wallet.setOwner(ownerText);
+      setOwnerText('');
+      setStatus(null);
+    } catch (e) {
+      setStatus(e instanceof Error ? e.message : String(e));
+    }
+  };
+
+  const checkLinked = async () => {
+    if (!wallet.key || !wallet.owner) return;
+    setBusy(true);
+    setStatus(null);
+    try {
+      const t = await loadTrading();
+      setStatus(await t.checkLink(wallet.key, wallet.owner));
+    } catch (e) {
+      setStatus(`Link check failed: ${e instanceof Error ? e.message.slice(0, 400) : String(e)}`);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const copy = () => {
     if (wallet.address && navigator?.clipboard) {
       navigator.clipboard.writeText(wallet.address);
@@ -92,9 +117,11 @@ export const WalletPanel: React.FC<{ wallet: GameWallet }> = ({ wallet }) => {
             <span>
               Gas: <span className="font-mono text-zinc-200">{stt ?? '...'} STT</span>
             </span>
-            <button className={btn} onClick={claim} disabled={busy}>
-              {busy ? 'Working...' : 'Claim paper USDso'}
-            </button>
+            {!wallet.owner && (
+              <button className={btn} onClick={claim} disabled={busy}>
+                {busy ? 'Working...' : 'Claim paper USDso'}
+              </button>
+            )}
             <button className={btn} onClick={refreshBalance}>Refresh</button>
             <button
               className="text-zinc-500 hover:text-rose-300 underline underline-offset-2"
@@ -104,6 +131,34 @@ export const WalletPanel: React.FC<{ wallet: GameWallet }> = ({ wallet }) => {
             >
               Forget wallet
             </button>
+          </div>
+        )}
+
+        {wallet.address && (
+          <div className="flex flex-wrap items-center gap-2">
+            {wallet.owner ? (
+              <>
+                <span>
+                  Trading for your dreamDEX account{' '}
+                  <span className="font-mono text-zinc-200">{wallet.owner.slice(0, 8)}...{wallet.owner.slice(-6)}</span>
+                </span>
+                <button className={btn} onClick={checkLinked} disabled={busy}>Check link</button>
+                <button className="text-zinc-500 hover:text-zinc-200 underline underline-offset-2" onClick={() => wallet.setOwner('')}>
+                  Use the game wallet itself
+                </button>
+              </>
+            ) : (
+              <>
+                <span>Or trade for your dreamDEX account (uses its margin and paper credit):</span>
+                <input
+                  value={ownerText}
+                  onChange={(e) => setOwnerText(e.target.value)}
+                  placeholder="0x... your dreamDEX account address"
+                  className="w-full sm:w-80 rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-1.5 text-xs text-white placeholder-zinc-600 focus:border-emerald-500 focus:outline-none"
+                />
+                <button className={btn} onClick={saveOwner}>Use this account</button>
+              </>
+            )}
           </div>
         )}
 
@@ -121,7 +176,7 @@ export const WalletPanel: React.FC<{ wallet: GameWallet }> = ({ wallet }) => {
         )}
 
         <div className="text-[11px] text-zinc-500">
-          Testnet only. The key stays in this browser. {wallet.address ? 'Send STT for gas to the address above, then claim the paper USDso.' : 'Never import a key that holds real money.'}
+          Testnet only. The key stays in this browser. {wallet.address ? (wallet.owner ? 'In the dreamDEX app, link the game wallet address above as a bot (wallet > Link a bot > Perps). It only signs and pays gas; the account keeps the funds.' : 'Send STT for gas to the address above, then claim the paper USDso.') : 'Never import a key that holds real money.'}
         </div>
         {status && <div className="text-[11px] text-amber-300">{status}</div>}
       </div>

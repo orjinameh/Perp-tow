@@ -16,12 +16,15 @@ import {
 import { CryptoAsset, GameMatch, PositionSide } from '@/lib/types';
 import { calculatePayout, CORE_RULES } from '@/lib/payout';
 import { soundFx } from '@/lib/sound';
+import { GameWallet } from '@/lib/useGameWallet';
+import type { EntryReceipt } from '@/lib/trading';
 
 interface EntryConfirmScreenProps {
   market: CryptoAsset;
   selectedSide: PositionSide;
   match: GameMatch;
-  onConfirmEntry: () => void;
+  wallet: GameWallet;
+  onEntered: (receipt: EntryReceipt) => void;
   onBackToInspect: () => void;
 }
 
@@ -29,10 +32,38 @@ export const EntryConfirmScreen: React.FC<EntryConfirmScreenProps> = ({
   market,
   selectedSide,
   match,
-  onConfirmEntry,
+  wallet,
+  onEntered,
   onBackToInspect,
 }) => {
   const isFull = match.total === 20;
+  const [busy, setBusy] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
+
+  const placeEntry = async () => {
+    if (!wallet.key || !wallet.address) return;
+    setBusy(true);
+    setError(null);
+    try {
+      // Loaded only now, in the browser, so the SDK never runs during server rendering.
+      const { enterMatch } = await import('@/lib/trading');
+      const receipt = await enterMatch({
+        key: wallet.key,
+        address: wallet.address,
+        owner: wallet.owner,
+        ticker: market,
+        side: selectedSide,
+        matchNumber: Number(match.id.split('#')[1]),
+        stakeUsd: CORE_RULES.ENTRY_FEE,
+      });
+      soundFx.playEntrySuccess();
+      onEntered(receipt);
+    } catch (e) {
+      setError(e instanceof Error ? e.message.split('\n')[0] : String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
 
   // Potential payout if user's chosen side wins
   const winnerCount = selectedSide === 'bulls' ? match.bulls : match.bears;
@@ -161,10 +192,20 @@ export const EntryConfirmScreen: React.FC<EntryConfirmScreenProps> = ({
         <div className="mt-6 flex items-start gap-3 rounded-2xl border border-zinc-800 bg-zinc-950/70 p-4 text-xs text-zinc-400">
           <ShieldAlert className="h-5 w-5 text-amber-400 shrink-0 mt-0.5" />
           <div className="space-y-1">
-            <span className="font-semibold text-zinc-200">Step 7 Specification Note:</span>
+            <span className="font-semibold text-zinc-200">This is a real order:</span>
             <p className="leading-relaxed">
-              Confirming this demo entry updates local UI state to simulate a successful match entry. It does not charge real funds, invoke smart contracts, or transmit blockchain transactions.
+              Confirming sends a market order from your game wallet to the {market}-PERP pool on dreamDEX Hideki testnet, using paper USDso
+              as margin. Your side sets the direction (Bulls = long, Bears = short). The nominal stake is $10; if the market&apos;s
+              minimum order is larger, the minimum is used and shown on your receipt. The order carries this match&apos;s tag, which is how the match is
+              rebuilt from chain data.
             </p>
+            {!wallet.address && (
+              <p className="text-amber-300">Create or import a game wallet in the bar at the top of the page first.</p>
+            )}
+            {match.total >= 20 && (
+              <p className="text-amber-300">This match already has 20 players. Open a new match instead.</p>
+            )}
+            {error && <p className="text-rose-300">Entry failed: {error}</p>}
           </div>
         </div>
 
@@ -181,14 +222,12 @@ export const EntryConfirmScreen: React.FC<EntryConfirmScreenProps> = ({
           </button>
 
           <button
-            onClick={() => {
-              soundFx.playEntrySuccess();
-              onConfirmEntry();
-            }}
-            className="w-full sm:w-auto flex items-center justify-center gap-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-zinc-950 font-black text-sm py-3.5 px-8 shadow-xl shadow-emerald-500/30 transition-transform hover:scale-[1.02]"
+            disabled={busy || !wallet.address || match.total >= 20}
+            onClick={placeEntry}
+            className="w-full sm:w-auto disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-zinc-950 font-black text-sm py-3.5 px-8 shadow-xl shadow-emerald-500/30 transition-transform hover:scale-[1.02]"
           >
             <Ticket className="h-4 w-4" />
-            <span>Confirm Demo Entry ($10 Stake)</span>
+            <span>{busy ? 'Placing order...' : 'Place real order ($10 stake)'}</span>
             <ArrowRight className="h-4 w-4" />
           </button>
         </div>

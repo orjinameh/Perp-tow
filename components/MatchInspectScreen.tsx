@@ -41,10 +41,9 @@ export const MatchInspectScreen: React.FC<MatchInspectScreenProps> = ({
   onBackToMatches,
   onOpenSpecs,
 }) => {
-  // Allow dynamic simulation state for the inspector
-  const [bullsCount, setBullsCount] = useState<number>(initialMatch.bulls);
-  const [bearsCount, setBearsCount] = useState<number>(initialMatch.bears);
-  const [simulatorActive, setSimulatorActive] = useState<boolean>(false);
+  // Real roster, rebuilt from chain data by the parent
+  const bullsCount = initialMatch.bulls;
+  const bearsCount = initialMatch.bears;
   const [arenaMode, setArenaMode] = useState<'3d' | '2d'>('3d');
 
   const totalPlayers = bullsCount + bearsCount;
@@ -77,50 +76,6 @@ export const MatchInspectScreen: React.FC<MatchInspectScreenProps> = ({
     total: totalPlayers,
     slotsRemaining,
     status: isFull ? 'full' : 'filling',
-  };
-
-  // Helper to quickly fill the match to 20 with matched teams (10 Bulls vs 10 Bears)
-  const handleQuickFill = () => {
-    soundFx.playClick();
-    setSimulatorActive(true);
-    // Fill to balanced 10 Bulls vs 10 Bears so the number of bears and bulls matches
-    setBullsCount(10);
-    setBearsCount(10);
-  };
-
-  // Equalize current match so the number of bears and bulls matches
-  const handleEqualize = () => {
-    soundFx.playClick();
-    setSimulatorActive(true);
-    const target = Math.min(10, Math.max(bullsCount, bearsCount));
-    setBullsCount(target);
-    setBearsCount(target);
-  };
-
-  // Add a matched pair (+1 Bull & +1 Bear)
-  const handleAddPair = () => {
-    if (totalPlayers >= 20) return;
-    soundFx.playClick();
-    setSimulatorActive(true);
-    setBullsCount((b) => Math.min(10, b + 1));
-    setBearsCount((b) => Math.min(10, b + 1));
-  };
-
-  // Reset back to initial match values
-  const handleResetMatch = () => {
-    soundFx.playClick();
-    setSimulatorActive(false);
-    setBullsCount(initialMatch.bulls);
-    setBearsCount(initialMatch.bears);
-  };
-
-  // Add 1 player to either side
-  const handleAddPlayer = (side: 'bulls' | 'bears') => {
-    if (totalPlayers >= CORE_RULES.REQUIRED_PLAYERS) return;
-    soundFx.playClick();
-    setSimulatorActive(true);
-    if (side === 'bulls') setBullsCount((b) => b + 1);
-    else setBearsCount((b) => b + 1);
   };
 
   return (
@@ -259,93 +214,6 @@ export const MatchInspectScreen: React.FC<MatchInspectScreenProps> = ({
         )}
       </div>
 
-      {/* Interactive Match Testing / Simulator Bar */}
-      <div className="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-4 sm:p-5 flex flex-col md:flex-row items-center justify-between gap-4">
-        <div className="flex items-start sm:items-center gap-3">
-          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-zinc-800 text-zinc-300 shrink-0">
-            <Sliders className="h-4 w-4" />
-          </div>
-          <div>
-            <div className="text-sm font-semibold text-white flex items-center gap-2">
-              <span>Prototype Roster Inspector Simulator</span>
-              {simulatorActive && (
-                <span className="text-[10px] bg-amber-500/20 text-amber-300 px-2 py-0.5 rounded border border-amber-500/30 font-mono">
-                  Custom Roster
-                </span>
-              )}
-            </div>
-            <p className="text-xs text-zinc-400">
-              Test how the algorithm behaves: Add/remove players to observe payout hiding (<span className="text-zinc-300 font-mono">&lt; 20</span>) vs payout calculation (<span className="text-zinc-300 font-mono">= 20</span>).
-            </p>
-          </div>
-        </div>
-
-        <div className="flex flex-wrap items-center gap-2 w-full md:w-auto justify-start md:justify-end pt-2 md:pt-0 border-t md:border-t-0 border-zinc-800/60">
-          <button
-            disabled={totalPlayers >= 20}
-            onClick={handleAddPair}
-            className="flex items-center gap-1.5 rounded-lg border border-emerald-500/40 bg-emerald-500/15 px-3 py-1.5 text-xs font-semibold text-emerald-300 hover:bg-emerald-500/25 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-            title="Add 1 Bull and 1 Bear together to keep teams matched"
-          >
-            <Sparkles className="h-3 w-3 text-emerald-400" />
-            <span>+1 Matched Pair</span>
-          </button>
-          <button
-            disabled={totalPlayers >= 20}
-            onClick={() => handleAddPlayer('bulls')}
-            className="flex items-center gap-1.5 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-2.5 py-1.5 text-xs font-semibold text-emerald-400 hover:bg-emerald-500/20 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-          >
-            <TrendingUp className="h-3 w-3" />
-            <span>+1 Bull</span>
-          </button>
-          <button
-            disabled={totalPlayers >= 20}
-            onClick={() => handleAddPlayer('bears')}
-            className="flex items-center gap-1.5 rounded-lg border border-rose-500/40 bg-rose-500/10 px-2.5 py-1.5 text-xs font-semibold text-rose-400 hover:bg-rose-500/20 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-          >
-            <TrendingDown className="h-3 w-3" />
-            <span>+1 Bear</span>
-          </button>
-          {bullsCount !== bearsCount && (
-            <button
-              onClick={handleEqualize}
-              className="flex items-center gap-1.5 rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-1.5 text-xs font-semibold text-zinc-200 hover:bg-zinc-700 transition-colors"
-              title="Make the number of bears and bulls match"
-            >
-              <span>Match Teams</span>
-            </button>
-          )}
-          <button
-            onClick={() => {
-              soundFx.playClick();
-              setSimulatorActive(true);
-              setBullsCount(13);
-              setBearsCount(7);
-            }}
-            className="flex items-center gap-1.5 rounded-lg border border-purple-500/40 bg-purple-500/15 px-3 py-1.5 text-xs font-semibold text-purple-300 hover:bg-purple-500/25 transition-colors"
-            title="Set roster to exactly 13 Bulls vs 7 Bears"
-          >
-            <Zap className="h-3 w-3 text-purple-400" />
-            <span>Set 13v7</span>
-          </button>
-          <button
-            onClick={handleQuickFill}
-            className="flex items-center gap-1.5 rounded-lg border border-amber-500/40 bg-amber-500/15 px-3 py-1.5 text-xs font-semibold text-amber-300 hover:bg-amber-500/25 transition-colors"
-          >
-            <Sparkles className="h-3 w-3" />
-            <span>Fill Matched 10v10</span>
-          </button>
-          {simulatorActive && (
-            <button
-              onClick={handleResetMatch}
-              className="px-3 py-1.5 text-xs text-zinc-400 hover:text-white rounded-lg border border-zinc-800 hover:bg-zinc-800 transition-colors"
-            >
-              Reset
-            </button>
-          )}
-        </div>
-      </div>
-
       {/* 20 Player Slots Grid Visualizer */}
       <div className="space-y-3">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
@@ -474,12 +342,7 @@ export const MatchInspectScreen: React.FC<MatchInspectScreenProps> = ({
           </div>
 
           <div className="pt-2 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4">
-            <button
-              onClick={handleQuickFill}
-              className="text-xs text-emerald-400 hover:text-emerald-300 underline underline-offset-4 text-left"
-            >
-              Test Step 6 payout calculation with 20 matched players (10 Bulls vs 10 Bears) &rarr;
-            </button>
+            <span />
 
             <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5">
               {isUnbalanced && (

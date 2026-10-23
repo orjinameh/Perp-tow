@@ -17,11 +17,13 @@ import { CryptoAsset, GameMatch, PositionSide } from '@/lib/types';
 import { TugOfWarRope } from './TugOfWarRope';
 import { ThreeTugOfWarArena } from './ThreeTugOfWarArena';
 import { soundFx } from '@/lib/sound';
+import type { EntryReceipt } from '@/lib/trading';
 
 interface EntrySuccessScreenProps {
   market: CryptoAsset;
   selectedSide: PositionSide;
   match: GameMatch;
+  receipt: EntryReceipt;
   onReturnToLobby: () => void;
   onInspectAnother: () => void;
   onOpenSpecs: () => void;
@@ -31,17 +33,18 @@ export const EntrySuccessScreen: React.FC<EntrySuccessScreenProps> = ({
   market,
   selectedSide,
   match,
+  receipt,
   onReturnToLobby,
   onInspectAnother,
   onOpenSpecs,
 }) => {
   const [copied, setCopied] = React.useState(false);
-  const [ticketId] = React.useState(() => `TOW-${market}-${Math.floor(100000 + Math.random() * 900000)}`);
+  const ticketId = receipt.txHash ? `${receipt.txHash.slice(0, 10)}...${receipt.txHash.slice(-6)}` : 'no tx hash returned';
 
   const handleCopyTicket = () => {
     soundFx.playClick();
     if (navigator?.clipboard) {
-      navigator.clipboard.writeText(ticketId);
+      navigator.clipboard.writeText(receipt.txHash ?? '');
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     }
@@ -61,7 +64,7 @@ export const EntrySuccessScreen: React.FC<EntrySuccessScreenProps> = ({
 
         <div className="space-y-1">
           <span className="text-xs font-bold uppercase tracking-wider text-emerald-400">
-            Step 8 — Demo Entry Confirmation
+            Step 8 — Entry Confirmed On Chain
           </span>
           <h1 className="text-2xl sm:text-3xl font-black text-white">
             You&apos;re Locked Into the Arena!
@@ -79,7 +82,7 @@ export const EntrySuccessScreen: React.FC<EntrySuccessScreenProps> = ({
           <div className="flex items-center justify-between border-b border-zinc-800 pb-3">
             <div className="flex items-center gap-2">
               <Ticket className="h-4 w-4 text-emerald-400" />
-              <span className="text-xs font-mono font-bold text-zinc-300">DEMO ENTRY RECEIPT</span>
+              <span className="text-xs font-mono font-bold text-zinc-300">ENTRY RECEIPT (dreamDEX testnet)</span>
             </div>
             <button
               onClick={handleCopyTicket}
@@ -110,8 +113,30 @@ export const EntrySuccessScreen: React.FC<EntrySuccessScreenProps> = ({
               <div className="font-bold text-white font-mono">{match.id}</div>
             </div>
             <div>
-              <span className="text-zinc-500">Entry Stake:</span>
-              <div className="font-bold text-white font-mono">$10.00 Fixed</div>
+              <span className="text-zinc-500">Position opened:</span>
+              <div className="font-bold text-white font-mono">
+                {receipt.filledQuantity} {market} @ ~${receipt.price.toLocaleString(undefined, { maximumFractionDigits: 4 })}
+              </div>
+            </div>
+            <div className="col-span-2">
+              <span className="text-zinc-500">Notional:</span>{' '}
+              <span className="font-bold text-white font-mono">${receipt.notionalUsd.toFixed(2)}</span>
+              {receipt.raisedToMinimum && (
+                <span className="text-amber-300"> (raised from the $10 stake to this market&apos;s minimum order)</span>
+              )}
+              {receipt.txHash && (
+                <>
+                  {' '}·{' '}
+                  <a
+                    href={`https://explorer.testnet.somnia.network/tokyo/tx/${receipt.txHash}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-emerald-400 underline underline-offset-2"
+                  >
+                    view on explorer
+                  </a>
+                </>
+              )}
             </div>
           </div>
         </div>
@@ -128,17 +153,6 @@ export const EntrySuccessScreen: React.FC<EntrySuccessScreenProps> = ({
             marketTicker={market}
             selectedSide={selectedSide}
           />
-        </div>
-
-        {/* Section 4 & 5 Production Architecture Note */}
-        <div className="rounded-xl border border-zinc-800 bg-zinc-950/70 p-4 text-xs text-zinc-400 text-left flex items-start gap-3 mt-4">
-          <ShieldCheck className="h-4 w-4 text-emerald-400 shrink-0 mt-0.5" />
-          <div className="space-y-1">
-            <span className="font-semibold text-zinc-200">Production Backend Note (Step 8):</span>
-            <p className="text-[11px] leading-relaxed">
-              In a production system, this confirmation is only rendered after the backend executes an atomic reservation, verifies capacity $\le 20$, securely escrows the $10 entry fee, and issues a cryptographically signed ticket.
-            </p>
-          </div>
         </div>
 
         {/* Action Controls */}

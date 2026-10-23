@@ -34,15 +34,36 @@ export interface EntryReceipt {
   raisedToMinimum: boolean; // the nominal stake was below the market's minimum order
 }
 
-function makeExchange(key: Hex) {
-  return new SomniaMarkets({
+function baseConfig() {
+  return {
     chain: hidekiTestnet,
     // Through our own server route so the browser never hits a CORS wall.
     indexerUrl: `${window.location.origin}/api/indexer`,
     wsRpcUrl: WS_URL,
     addresses: SOMNIA_HIDEKI_TESTNET_ADDRESSES,
-    privateKey: key,
-  });
+  };
+}
+
+/** Trades the game wallet's own dreamDEX account. */
+function makeExchange(key: Hex) {
+  return new SomniaMarkets({ ...baseConfig(), privateKey: key });
+}
+
+/** Read-only view of someone's account (used when the game wallet trades for a linked account). */
+function makeReadOnly(account: Hex) {
+  return new SomniaMarkets({ ...baseConfig(), account });
+}
+
+/** Whether the game wallet has been linked as a bot on this dreamDEX account (checked on the BTC pool). */
+export async function checkLink(key: Hex, owner: Hex): Promise<string> {
+  const { createTradingKey, canPlaceFor, LINK_HELP } = await import('./operator');
+  const tk = createTradingKey(owner, key);
+  const rows = (await makeReadOnly(owner).client.listPerpMarkets()) as unknown as PerpRow[];
+  const pool = (rows.find((r) => r.baseSymbol === 'BTC') ?? rows[0])?.poolAddress;
+  if (!pool) throw new Error('No perp market was returned.');
+  return (await canPlaceFor(tk, pool))
+    ? `Linked: the game wallet can place orders for ${owner}.`
+    : LINK_HELP(tk.operator, owner);
 }
 
 export async function getSttBalance(address: Hex): Promise<string> {
@@ -78,13 +99,15 @@ export async function claimPaperCredit(key: Hex, address: Hex): Promise<string> 
 export async function enterMatch(args: {
   key: Hex;
   address: Hex;
+  owner: Hex | null; // set: trade for this linked dreamDEX account; null: trade the game wallet's own account
   ticker: string;
   side: PositionSide;
   matchNumber: number;
   stakeUsd: number;
 }): Promise<EntryReceipt> {
-  const { key, address, ticker, side, matchNumber, stakeUsd } = args;
-  const ex = makeExchange(key);
+  const { key, address, owner, ticker, side, matchNumber, stakeUsd } = args;
+  const account = owner ?? address;
+  const ex = owner ? makeReadOnly(owner) : makeExchange(key);
   const rows = (await ex.client.listPerpMarkets()) as unknown as PerpRow[];
   const m = rows.find((r) => r.baseSymbol === ticker);
   if (!m) throw new Error(`${ticker} is not a dreamDEX perp market right now.`);
@@ -113,7 +136,7 @@ export async function enterMatch(args: {
   const max = (await ex.client.getMaxPerpOrderSize({
     pool: m.poolAddress,
     marginBank: m.marginBank,
-    account: address,
+    account,
     isBid,
     price,
   })) as unknown as { priceable: boolean; placeable: boolean; maxQuantity: bigint | string; limitedBy?: string };
@@ -121,14 +144,23 @@ export async function enterMatch(args: {
   if (!max.placeable) throw new Error(`${ticker}-PERP cannot take this order (${max.limitedBy ?? 'limit reached'}). Check the wallet has margin: claim the paper credit first.`);
   if (quantity > BigInt(max.maxQuantity)) throw new Error(`The largest order this wallet can place on ${ticker}-PERP is smaller than the stake size.`);
 
-  const res = (await ex.trader.placePerpOrder({
-    pool: m.poolAddress,
-    isBid,
-    price,
-    quantity,
-    orderType: ORDER_TYPE_MARKET,
-    userData: encodeUserData(matchNumber),
-  })) as unknown as { hash?: string; orderId?: bigint; receipt?: { status?: string }; fills?: { quantityFilled: bigint }[] };
+  const userData = encodeUserData(matchNumber);
+  let res: { hash?: string; orderId?: bigint; receipt?: { status?: string }; fills?: { quantityFilled: bigint }[] };
+  if (owner) {
+    const { createTradingKey, canPlaceFor, placeFor, LINK_HELP } = await import('./operator');
+    const tk = createTradingKey(owner, key);
+    if (!(await canPlaceFor(tk, m.poolAddress))) throw new Error(LINK_HELP(tk.operator, owner));
+    res = await placeFor(tk, { pool: m.poolAddress, isBid, price, quantity, orderType: ORDER_TYPE_MARKET, userData });
+  } else {
+    res = (await ex.trader.placePerpOrder({
+      pool: m.poolAddress,
+      isBid,
+      price,
+      quantity,
+      orderType: ORDER_TYPE_MARKET,
+      userData,
+    })) as unknown as typeof res;
+  }
 
   if (res.receipt?.status && res.receipt.status !== 'success') throw new Error('The order transaction reverted on chain.');
   const filled = (res.fills ?? []).reduce((s, f) => s + f.quantityFilled, 0n);

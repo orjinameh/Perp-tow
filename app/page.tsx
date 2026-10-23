@@ -8,6 +8,11 @@ import {
   PrototypeScreen,
 } from '@/lib/types';
 import { useLiveMarkets } from '@/lib/useLiveMarkets';
+import { useGameWallet } from '@/lib/useGameWallet';
+import { useMatches } from '@/lib/useMatches';
+import { draftMatch, nextMatchNumber } from '@/lib/matches';
+import type { EntryReceipt } from '@/lib/trading';
+import { WalletPanel } from '@/components/WalletPanel';
 import { CORE_RULES } from '@/lib/payout';
 import { soundFx } from '@/lib/sound';
 import { Navbar } from '@/components/Navbar';
@@ -26,6 +31,8 @@ export default function TugOfWarApp() {
   const [selectedAsset, setSelectedAsset] = useState<CryptoAsset | null>(null);
   const [selectedSide, setSelectedSide] = useState<PositionSide | null>(null);
   const [selectedMatch, setSelectedMatch] = useState<GameMatch | null>(null);
+  const [receipt, setReceipt] = useState<EntryReceipt | null>(null);
+  const wallet = useGameWallet();
 
   // Modal and Sound states
   const [isSpecsOpen, setIsSpecsOpen] = useState<boolean>(false);
@@ -35,9 +42,19 @@ export default function TugOfWarApp() {
   const live = useLiveMarkets();
   const currentMarket = live.markets.find((m) => m.ticker === selectedAsset);
 
-  // Matches only exist once players have entered one on-chain. Nothing is entered yet,
-  // so this is genuinely empty (no made-up lobbies).
-  const currentMatches: GameMatch[] = [];
+  // Matches are rebuilt from real dreamDEX orders that carry the game tag (see lib/matches.ts).
+  const matchState = useMatches(
+    screen === 'lobby' ? null : currentMarket?.pool ?? null,
+    selectedAsset,
+    wallet.player,
+  );
+  const currentMatches: GameMatch[] = matchState.matches;
+
+  const handleOpenNewMatch = () => {
+    if (!selectedAsset) return;
+    setSelectedMatch(draftMatch(selectedAsset, nextMatchNumber(currentMatches)));
+    setScreen('inspect');
+  };
 
   // Step 2: Select a market
   const handleSelectMarket = (asset: CryptoAsset) => {
@@ -64,7 +81,9 @@ export default function TugOfWarApp() {
   };
 
   // Step 7 -> Step 8: Confirm demo entry
-  const handleConfirmEntry = () => {
+  const handleEntered = (r: EntryReceipt) => {
+    setReceipt(r);
+    matchState.reload();
     setScreen('done');
   };
 
@@ -111,6 +130,8 @@ export default function TugOfWarApp() {
         isMuted={isMuted}
         onToggleMute={handleToggleMute}
       />
+
+      <WalletPanel wallet={wallet} />
 
       {/* Step Flow Ribbon Indicator */}
       <FlowBreadcrumbs
@@ -168,7 +189,10 @@ export default function TugOfWarApp() {
             market={selectedAsset}
             selectedSide={selectedSide}
             matches={currentMatches}
+            loading={!matchState.loaded}
+            error={matchState.error}
             onSelectMatch={handleSelectMatch}
+            onOpenNewMatch={handleOpenNewMatch}
             onBackToChart={() => setScreen('chart')}
           />
         )}
@@ -189,16 +213,18 @@ export default function TugOfWarApp() {
             market={selectedAsset}
             selectedSide={selectedSide}
             match={selectedMatch}
-            onConfirmEntry={handleConfirmEntry}
+            wallet={wallet}
+            onEntered={handleEntered}
             onBackToInspect={() => setScreen('inspect')}
           />
         )}
 
-        {screen === 'done' && selectedAsset && selectedSide && selectedMatch && (
+        {screen === 'done' && selectedAsset && selectedSide && selectedMatch && receipt && (
           <EntrySuccessScreen
             market={selectedAsset}
             selectedSide={selectedSide}
             match={selectedMatch}
+            receipt={receipt}
             onReturnToLobby={handleReturnToLobby}
             onInspectAnother={handleInspectAnother}
             onOpenSpecs={() => setIsSpecsOpen(true)}
