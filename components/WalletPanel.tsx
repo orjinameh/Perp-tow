@@ -8,6 +8,7 @@ const loadTrading = () => import('@/lib/trading');
 
 export const WalletPanel: React.FC<{ wallet: GameWallet }> = ({ wallet }) => {
   const [stt, setStt] = useState<string | null>(null);
+  const [usdso, setUsdso] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
@@ -20,8 +21,10 @@ export const WalletPanel: React.FC<{ wallet: GameWallet }> = ({ wallet }) => {
     try {
       const t = await loadTrading();
       setStt(Number(await t.getSttBalance(wallet.address)).toFixed(3));
+      setUsdso(Number(await t.getUsdsoBalance(wallet.address)).toFixed(2));
     } catch {
       setStt(null);
+      setUsdso(null);
     }
   }, [wallet.address]);
 
@@ -116,6 +119,9 @@ export const WalletPanel: React.FC<{ wallet: GameWallet }> = ({ wallet }) => {
             </button>
             <span>
               Gas: <span className="font-mono text-zinc-200">{stt ?? '...'} STT</span>
+            </span>
+            <span>
+              USDso: <span className="font-mono text-zinc-200">{usdso ?? '...'}</span>
             </span>
             {!wallet.owner && (
               <button className={btn} onClick={claim} disabled={busy}>

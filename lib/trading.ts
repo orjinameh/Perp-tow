@@ -1,6 +1,6 @@
 import { SomniaMarkets, SOMNIA_HIDEKI_TESTNET_ADDRESSES } from '@somnia-chain/markets-sdk';
 import { hidekiTestnet } from '@somnia-chain/markets-sdk/chains';
-import { createPublicClient, formatEther, http } from 'viem';
+import { createPublicClient, formatEther, formatUnits, http, parseAbi } from 'viem';
 import { PositionSide } from './types';
 import { encodeUserData } from './gameTag';
 
@@ -69,6 +69,20 @@ export async function checkLink(key: Hex, owner: Hex): Promise<string> {
 export async function getSttBalance(address: Hex): Promise<string> {
   const client = createPublicClient({ chain: hidekiTestnet, transport: http(RPC_URL) });
   return formatEther(await client.getBalance({ address }));
+}
+
+// USDso, the perps collateral (18 decimals), from the dreamDEX docs' contract table.
+const USDSO = '0xed7993A74dAe1e6656B704A424DcD8711aAf4F72' as const;
+
+export async function getUsdsoBalance(address: Hex): Promise<string> {
+  const client = createPublicClient({ chain: hidekiTestnet, transport: http(RPC_URL) });
+  const raw = (await client.readContract({
+    address: USDSO,
+    abi: parseAbi(['function balanceOf(address) view returns (uint256)']),
+    functionName: 'balanceOf',
+    args: [address],
+  })) as bigint;
+  return formatUnits(raw, 18);
 }
 
 /** Claims the one-time paper USDso credit for this wallet, if it is still eligible. */
