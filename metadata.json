@@ -1,0 +1,6 @@
+{
+  "name": "Tug of War: Crypto Prediction Arena",
+  "description": "Interactive prototype for 20-player Long vs Short crypto battle royale with real-time queue lobby, match inspection, and dynamic payout estimation.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

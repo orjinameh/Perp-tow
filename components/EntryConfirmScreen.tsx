@@ -1,0 +1,198 @@
+'use client';
+
+import React from 'react';
+import Image from 'next/image';
+import {
+  ArrowLeft,
+  ArrowRight,
+  TrendingUp,
+  TrendingDown,
+  ShieldAlert,
+  CheckCircle,
+  Clock,
+  Sparkles,
+  Ticket,
+} from 'lucide-react';
+import { CryptoAsset, GameMatch, PositionSide } from '@/lib/types';
+import { calculatePayout, CORE_RULES } from '@/lib/payout';
+import { soundFx } from '@/lib/sound';
+
+interface EntryConfirmScreenProps {
+  market: CryptoAsset;
+  selectedSide: PositionSide;
+  match: GameMatch;
+  onConfirmEntry: () => void;
+  onBackToInspect: () => void;
+}
+
+export const EntryConfirmScreen: React.FC<EntryConfirmScreenProps> = ({
+  market,
+  selectedSide,
+  match,
+  onConfirmEntry,
+  onBackToInspect,
+}) => {
+  const isFull = match.total === 20;
+
+  // Potential payout if user's chosen side wins
+  const winnerCount = selectedSide === 'bulls' ? match.bulls : match.bears;
+  const loserCount = selectedSide === 'bulls' ? match.bears : match.bulls;
+
+  const estimatedPayout = isFull && winnerCount > 0
+    ? calculatePayout({
+        entryFee: CORE_RULES.ENTRY_FEE,
+        winnerCount,
+        loserCount,
+        rake: CORE_RULES.RAKE_RATE,
+      })
+    : null;
+
+  return (
+    <div className="mx-auto max-w-4xl px-4 py-6 sm:px-6 space-y-7">
+      {/* Top Header */}
+      <div className="flex items-center gap-4 border-b border-zinc-800 pb-5">
+        <button
+          onClick={() => {
+            soundFx.playClick();
+            onBackToInspect();
+          }}
+          className="flex h-10 w-10 items-center justify-center rounded-xl border border-zinc-800 bg-zinc-900 text-zinc-400 hover:text-white hover:border-zinc-700 transition-colors"
+        >
+          <ArrowLeft className="h-4 w-4" />
+        </button>
+        <div>
+          <span className="text-xs font-bold uppercase tracking-wider text-emerald-400">
+            Step 7 — Entry Confirmation
+          </span>
+          <h1 className="text-xl sm:text-2xl font-black text-white tracking-tight">
+            Review Match Entry Details
+          </h1>
+        </div>
+      </div>
+
+      {/* Main Ticket Card */}
+      <div className="relative overflow-hidden rounded-3xl border-2 border-zinc-700 bg-gradient-to-b from-zinc-900 via-zinc-900 to-zinc-950 p-6 sm:p-8 shadow-2xl">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-zinc-800 pb-5">
+          <div className="flex items-center gap-3">
+            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-zinc-800 text-zinc-200 border border-zinc-700 font-black text-xl">
+              {market}
+            </div>
+            <div>
+              <div className="text-xs text-zinc-500 font-mono">TUG OF WAR ENTRY TICKET</div>
+              <h2 className="text-lg font-bold text-white">{match.id}</h2>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <span
+              className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider ${
+                selectedSide === 'bulls'
+                  ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                  : 'bg-rose-500/20 text-rose-400 border border-rose-500/30'
+              }`}
+            >
+              {selectedSide === 'bulls' ? <TrendingUp className="h-3.5 w-3.5" /> : <TrendingDown className="h-3.5 w-3.5" />}
+              <span>{selectedSide === 'bulls' ? 'Team Bulls (Long)' : 'Team Bears (Short)'}</span>
+            </span>
+          </div>
+        </div>
+
+        {/* Ticket Details Grid */}
+        <div className="mt-6 grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
+          <div className="rounded-2xl border border-zinc-800 bg-zinc-950/50 p-4 space-y-1">
+            <span className="text-zinc-500">Asset & Market Isolation</span>
+            <div className="text-base font-bold text-white flex items-center gap-2">
+              <span>{market} / USD</span>
+              <span className="text-[10px] bg-zinc-800 text-zinc-400 px-2 py-0.5 rounded font-mono">
+                Isolated
+              </span>
+            </div>
+            <p className="text-[11px] text-zinc-500">
+              Only {market} players can join this match pool.
+            </p>
+          </div>
+
+          <div className="rounded-2xl border border-zinc-800 bg-zinc-950/50 p-4 space-y-1">
+            <span className="text-zinc-500">Entry Fee (Stake)</span>
+            <div className="text-base font-bold text-white font-mono">$10.00 USD</div>
+            <p className="text-[11px] text-zinc-500">
+              Fixed buy-in ($200 total locked pool at 20 players).
+            </p>
+          </div>
+
+          <div className="rounded-2xl border border-zinc-800 bg-zinc-950/50 p-4 space-y-1">
+            <span className="text-zinc-500">Roster Capacity Status</span>
+            <div className="text-base font-bold text-white font-mono">
+              {match.total} / 20 Players
+            </div>
+            <p className="text-[11px] text-zinc-500">
+              {match.bulls} Bulls · {match.bears} Bears · {match.slotsRemaining} Slots Open
+            </p>
+          </div>
+
+          <div className="rounded-2xl border border-zinc-800 bg-zinc-950/50 p-4 space-y-1">
+            <span className="text-zinc-500">Estimated Payout Status</span>
+            {isFull && estimatedPayout ? (
+              <div>
+                <div className="text-base font-bold text-emerald-400 font-mono">
+                  ${estimatedPayout.payoutPerWinner.toFixed(2)}{' '}
+                  <span className="text-xs text-zinc-400 font-normal">
+                    (+${estimatedPayout.netProfitPerWinner.toFixed(2)} profit)
+                  </span>
+                </div>
+                <p className="text-[11px] text-emerald-500/80">
+                  Calculated based on locked 20-player final roster.
+                </p>
+              </div>
+            ) : (
+              <div>
+                <div className="text-base font-semibold text-amber-400">
+                  Hidden / Pending
+                </div>
+                <p className="text-[11px] text-zinc-500">
+                  Revealed once all 20 slots fill (Step 5 rule).
+                </p>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Prototype Demo Disclaimer Banner */}
+        <div className="mt-6 flex items-start gap-3 rounded-2xl border border-zinc-800 bg-zinc-950/70 p-4 text-xs text-zinc-400">
+          <ShieldAlert className="h-5 w-5 text-amber-400 shrink-0 mt-0.5" />
+          <div className="space-y-1">
+            <span className="font-semibold text-zinc-200">Step 7 Specification Note:</span>
+            <p className="leading-relaxed">
+              Confirming this demo entry updates local UI state to simulate a successful match entry. It does not charge real funds, invoke smart contracts, or transmit blockchain transactions.
+            </p>
+          </div>
+        </div>
+
+        {/* Confirm Button */}
+        <div className="mt-7 flex flex-col sm:flex-row items-center justify-between gap-4 pt-4 border-t border-zinc-800/80">
+          <button
+            onClick={() => {
+              soundFx.playClick();
+              onBackToInspect();
+            }}
+            className="text-xs text-zinc-400 hover:text-white underline underline-offset-4"
+          >
+            &larr; Back to inspect match
+          </button>
+
+          <button
+            onClick={() => {
+              soundFx.playEntrySuccess();
+              onConfirmEntry();
+            }}
+            className="w-full sm:w-auto flex items-center justify-center gap-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-zinc-950 font-black text-sm py-3.5 px-8 shadow-xl shadow-emerald-500/30 transition-transform hover:scale-[1.02]"
+          >
+            <Ticket className="h-4 w-4" />
+            <span>Confirm Demo Entry ($10 Stake)</span>
+            <ArrowRight className="h-4 w-4" />
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
