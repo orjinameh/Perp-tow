@@ -26,40 +26,39 @@ export const MarketChartScreen: React.FC<MarketChartScreenProps> = ({
   onSelectSide,
   onBackToLobby,
 }) => {
-  const [activeTimeframe, setActiveTimeframe] = useState<'1m' | '5m' | '15m' | '1h' | '1D'>('15m');
+  const [activeTimeframe, setActiveTimeframe] = useState<'1m' | '5m' | '15m' | '1h'>('15m');
   const [chartType, setChartType] = useState<'area' | 'candles'>('area');
   const [hoveredPoint, setHoveredPoint] = useState<{ time: string; price: number } | null>(null);
 
-  // Derive timeframe multiplier to simulate chart change
-  const timeframeMultiplier = {
-    '1m': 0.003,
-    '5m': 0.008,
-    '15m': 0.015,
-    '1h': 0.035,
-    '1D': 0.06,
-  }[activeTimeframe];
+  // Real prices: group the market's 1-minute candles into the chosen timeframe and plot each close.
+  const bucketMinutes = { '1m': 1, '5m': 5, '15m': 15, '1h': 60 }[activeTimeframe];
+  const maxPoints = activeTimeframe === '1h' ? 24 : 60;
+  const points = (() => {
+    const bucketSec = bucketMinutes * 60;
+    const byBucket = new Map<number, number>();
+    for (const c of market.candles) {
+      byBucket.set(Math.floor(c.t / bucketSec) * bucketSec, c.close); // candles are oldest first
+    }
+    return [...byBucket.entries()]
+      .sort((a, b) => a[0] - b[0])
+      .slice(-maxPoints)
+      .map(([t, price]) => ({
+        time: new Date(t * 1000).toISOString().slice(5, 16).replace('T', ' ') + ' UTC',
+        price,
+      }));
+  })();
 
-  // Generate 20 realistic price points for the SVG chart
-  const basePrice = market.price;
-  const simulatedPoints = Array.from({ length: 24 }).map((_, i) => {
-    const sinOffset = Math.sin((i / 23) * Math.PI * 2.5);
-    const noise = (Math.sin(i * 1.7) * 0.4);
-    const price = basePrice * (1 - (timeframeMultiplier * 1.5) + (i / 23) * timeframeMultiplier * 2 + (sinOffset + noise) * timeframeMultiplier * 0.4);
-    const hour = (i < 10 ? '0' : '') + i + ':00';
-    return { time: hour, price };
-  });
-
-  const minPrice = Math.min(...simulatedPoints.map((p) => p.price)) * 0.998;
-  const maxPrice = Math.max(...simulatedPoints.map((p) => p.price)) * 1.002;
+  const minPrice = points.length ? Math.min(...points.map((p) => p.price)) * 0.998 : 0;
+  const maxPrice = points.length ? Math.max(...points.map((p) => p.price)) * 1.002 : 1;
   const priceRange = maxPrice - minPrice || 1;
 
   // SVG coordinate calculations
   const svgWidth = 800;
   const svgHeight = 280;
 
-  const pointsString = simulatedPoints
+  const pointsString = points
     .map((p, idx) => {
-      const x = (idx / (simulatedPoints.length - 1)) * (svgWidth - 40) + 20;
+      const x = (idx / (points.length - 1)) * (svgWidth - 40) + 20;
       const y = svgHeight - 30 - ((p.price - minPrice) / priceRange) * (svgHeight - 60);
       return `${x},${y}`;
     })
@@ -132,7 +131,7 @@ export const MarketChartScreen: React.FC<MarketChartScreenProps> = ({
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-zinc-800/80 pb-4 mb-4">
           <div className="flex items-center gap-1.5 sm:gap-2 text-xs overflow-x-auto pb-1 sm:pb-0 scrollbar-none">
             <span className="text-zinc-500 font-medium shrink-0">Timeframe:</span>
-            {(['1m', '5m', '15m', '1h', '1D'] as const).map((tf) => (
+            {(['1m', '5m', '15m', '1h'] as const).map((tf) => (
               <button
                 key={tf}
                 onClick={() => {
@@ -171,6 +170,12 @@ export const MarketChartScreen: React.FC<MarketChartScreenProps> = ({
             ))}
           </div>
 
+          {points.length < 2 && (
+            <div className="flex h-56 sm:h-72 items-center justify-center text-center text-xs text-zinc-500 px-6">
+              Not enough trades in the last 24 hours to draw a chart for {market.ticker}-PERP yet.
+            </div>
+          )}
+          {points.length >= 2 && (
           <svg
             viewBox={`0 0 ${svgWidth} ${svgHeight}`}
             className="w-full h-56 sm:h-72 drop-shadow-md overflow-visible"
@@ -219,8 +224,8 @@ export const MarketChartScreen: React.FC<MarketChartScreenProps> = ({
             />
 
             {/* Price nodes with hover interaction */}
-            {simulatedPoints.map((point, idx) => {
-              const x = (idx / (simulatedPoints.length - 1)) * (svgWidth - 40) + 20;
+            {points.map((point, idx) => {
+              const x = (idx / (points.length - 1)) * (svgWidth - 40) + 20;
               const y = svgHeight - 30 - ((point.price - minPrice) / priceRange) * (svgHeight - 60);
               const isHovered = hoveredPoint?.time === point.time;
 
@@ -241,15 +246,16 @@ export const MarketChartScreen: React.FC<MarketChartScreenProps> = ({
               );
             })}
           </svg>
+          )}
 
-          {/* Time axis stamps */}
-          <div className="flex justify-between px-4 pt-2 text-[10px] text-zinc-500 font-mono">
-            <span>00:00 UTC</span>
-            <span>06:00 UTC</span>
-            <span>12:00 UTC</span>
-            <span>18:00 UTC</span>
-            <span>Current (24:00)</span>
-          </div>
+          {/* Time axis stamps (real first, middle and last point times) */}
+          {points.length >= 2 && (
+            <div className="flex justify-between px-4 pt-2 text-[10px] text-zinc-500 font-mono">
+              <span>{points[0].time}</span>
+              <span>{points[Math.floor(points.length / 2)].time}</span>
+              <span>{points[points.length - 1].time}</span>
+            </div>
+          )}
         </div>
 
         {/* Global Queue Overview for this Asset */}

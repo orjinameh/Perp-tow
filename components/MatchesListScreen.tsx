@@ -189,6 +189,16 @@ export const MatchesListScreen: React.FC<MatchesListScreenProps> = ({
         </p>
       </div>
 
+      {matches.length === 0 && (
+        <div className="rounded-2xl border border-zinc-800 bg-zinc-900/50 p-8 text-center space-y-2">
+          <div className="text-base font-semibold text-white">No open {market} matches yet</div>
+          <p className="text-xs text-zinc-400 max-w-md mx-auto">
+            Matches are built from real players&apos; entries, and nobody has entered one on this market yet.
+            Entering a match will open the first one.
+          </p>
+        </div>
+      )}
+
       {/* Matches Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
         {filteredMatches.map((match) => {

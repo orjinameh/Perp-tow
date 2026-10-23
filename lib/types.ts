@@ -2,17 +2,28 @@ export type CryptoAsset = 'BTC' | 'ETH' | 'SOL' | 'XRP' | 'DOGE' | 'BNB';
 
 export type PositionSide = 'bulls' | 'bears'; // bulls = Long, bears = Short
 
+export interface MarketCandle {
+  t: number; // unix seconds, start of the 1-minute bucket
+  open: number;
+  close: number;
+  high: number;
+  low: number;
+  volumeUsd: number;
+}
+
 export interface MarketQueueData {
   ticker: CryptoAsset;
   name: string;
-  price: number;
-  priceChange24h: number; // percentage, e.g. +3.4% or -1.8%
-  waitingBulls: number; // global queue count
-  waitingBears: number; // global queue count
+  pool: string; // dreamDEX perp pool address
+  price: number; // last traded price, USD
+  priceChange24h: number; // percentage over the last 24h of candles
+  waitingBulls: number; // players waiting in the game queue (0 until the game contract exists)
+  waitingBears: number;
   high24h: number;
   low24h: number;
-  volume24h: string;
-  chartData: { time: string; price: number }[];
+  volume24hUsd: number;
+  openInterestUsd: number;
+  candles: MarketCandle[]; // 1-minute candles, last 24h, oldest first
 }
 
 export interface PlayerSlot {

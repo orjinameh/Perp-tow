@@ -12,22 +12,26 @@ import {
   Info,
 } from 'lucide-react';
 import { CryptoAsset, MarketQueueData } from '@/lib/types';
-import { SUPPORTED_MARKETS } from '@/lib/constants';
+import { formatUsdCompact } from '@/lib/dreamdex';
 import { soundFx } from '@/lib/sound';
 
 interface GlobalLobbyProps {
+  markets: MarketQueueData[];
+  failed: CryptoAsset[];
   onSelectMarket: (market: CryptoAsset) => void;
   onOpenSpecs: () => void;
 }
 
 export const GlobalLobby: React.FC<GlobalLobbyProps> = ({
+  markets,
+  failed,
   onSelectMarket,
   onOpenSpecs,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [sortField, setSortField] = useState<'volume' | 'change' | 'queue'>('volume');
 
-  const filteredMarkets = SUPPORTED_MARKETS.filter(
+  const filteredMarkets = markets.filter(
     (m) =>
       m.ticker.toLowerCase().includes(searchQuery.toLowerCase()) ||
       m.name.toLowerCase().includes(searchQuery.toLowerCase())
@@ -165,7 +169,7 @@ export const GlobalLobby: React.FC<GlobalLobbyProps> = ({
         {filteredMarkets.map((market) => {
           const isPositive = market.priceChange24h >= 0;
           const totalQueue = market.waitingBulls + market.waitingBears;
-          const bullRatio = Math.round((market.waitingBulls / totalQueue) * 100);
+          const bullRatio = totalQueue > 0 ? Math.round((market.waitingBulls / totalQueue) * 100) : 50;
 
           return (
             <div
@@ -214,7 +218,7 @@ export const GlobalLobby: React.FC<GlobalLobbyProps> = ({
                       <span>{market.waitingBulls} Bulls</span>
                       <span className="text-zinc-500 font-normal">({bullRatio}%)</span>
                     </div>
-                    {market.waitingBulls === market.waitingBears && (
+                    {totalQueue > 0 && market.waitingBulls === market.waitingBears && (
                       <span className="text-[10px] text-emerald-400/90 font-mono font-semibold bg-emerald-500/10 px-1.5 py-0.5 rounded border border-emerald-500/20">
                         Matched 1:1
                       </span>
@@ -248,12 +252,16 @@ export const GlobalLobby: React.FC<GlobalLobbyProps> = ({
                   <div>
                     <span className="text-zinc-500">24h Range: </span>
                     <span className="font-mono text-zinc-300">
-                      ${market.low24h.toLocaleString()} - ${market.high24h.toLocaleString()}
+                      ${market.low24h.toLocaleString(undefined, { maximumFractionDigits: market.price < 1 ? 4 : 2 })} - ${market.high24h.toLocaleString(undefined, { maximumFractionDigits: market.price < 1 ? 4 : 2 })}
                     </span>
                   </div>
                   <div className="text-right">
                     <span className="text-zinc-500">24h Vol: </span>
-                    <span className="font-mono text-zinc-300">{market.volume24h}</span>
+                    <span className="font-mono text-zinc-300">{formatUsdCompact(market.volume24hUsd)}</span>
+                  </div>
+                  <div className="col-span-2">
+                    <span className="text-zinc-500">Open interest: </span>
+                    <span className="font-mono text-zinc-300">{formatUsdCompact(market.openInterestUsd)}</span>
                   </div>
                 </div>
               </div>
@@ -281,7 +289,7 @@ export const GlobalLobby: React.FC<GlobalLobbyProps> = ({
         <div className="flex items-center gap-3">
           <ShieldAlert className="h-5 w-5 text-zinc-400 shrink-0" />
           <div className="text-xs text-zinc-400">
-            <span className="font-semibold text-zinc-200">Prototype Environment Notice:</span> Market prices and waiting queues are illustrative simulation figures to demonstrate the 8-step matching and payout algorithm.
+            <span className="font-semibold text-zinc-200">Live data:</span> prices, 24h range, volume and open interest come from the dreamDEX Hideki testnet perps indexer. Queues and matches start empty and fill only when players enter.{failed.length > 0 ? ` Could not load: ${failed.join(', ')}.` : ''}
           </div>
         </div>
         <button

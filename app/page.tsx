@@ -4,11 +4,10 @@ import React, { useState } from 'react';
 import {
   CryptoAsset,
   GameMatch,
-  MarketQueueData,
   PositionSide,
   PrototypeScreen,
 } from '@/lib/types';
-import { INITIAL_MATCHES, SUPPORTED_MARKETS } from '@/lib/constants';
+import { useLiveMarkets } from '@/lib/useLiveMarkets';
 import { CORE_RULES } from '@/lib/payout';
 import { soundFx } from '@/lib/sound';
 import { Navbar } from '@/components/Navbar';
@@ -32,14 +31,13 @@ export default function TugOfWarApp() {
   const [isSpecsOpen, setIsSpecsOpen] = useState<boolean>(false);
   const [isMuted, setIsMuted] = useState<boolean>(false);
 
-  // Active market data based on selectedAsset
-  const currentMarket: MarketQueueData =
-    SUPPORTED_MARKETS.find((m) => m.ticker === selectedAsset) || SUPPORTED_MARKETS[0];
+  // Live prices, candles, volume and open interest from the dreamDEX indexer
+  const live = useLiveMarkets();
+  const currentMarket = live.markets.find((m) => m.ticker === selectedAsset);
 
-  // Matches for active asset
-  const currentMatches: GameMatch[] = selectedAsset
-    ? INITIAL_MATCHES[selectedAsset] || []
-    : [];
+  // Matches only exist once players have entered one on-chain. Nothing is entered yet,
+  // so this is genuinely empty (no made-up lobbies).
+  const currentMatches: GameMatch[] = [];
 
   // Step 2: Select a market
   const handleSelectMarket = (asset: CryptoAsset) => {
@@ -125,14 +123,39 @@ export default function TugOfWarApp() {
 
       {/* Dynamic Screen Viewport */}
       <main className="flex-1 pb-16">
-        {screen === 'lobby' && (
+        {live.status === 'loading' && (
+          <div className="mx-auto max-w-3xl px-4 py-24 text-center text-sm text-zinc-400">
+            Loading live markets from the dreamDEX testnet indexer...
+          </div>
+        )}
+
+        {live.status === 'error' && (
+          <div className="mx-auto max-w-3xl px-4 py-16">
+            <div className="rounded-2xl border border-rose-500/30 bg-rose-500/5 p-6 text-center space-y-3">
+              <div className="font-semibold text-rose-300">Market data is offline</div>
+              <p className="text-xs text-zinc-400">
+                Could not reach the dreamDEX testnet indexer: {live.error}. No prices are shown until it is back.
+              </p>
+              <button
+                onClick={live.reload}
+                className="rounded-lg bg-zinc-800 hover:bg-emerald-600 text-white px-4 py-2 text-xs font-semibold transition-colors"
+              >
+                Retry
+              </button>
+            </div>
+          </div>
+        )}
+
+        {live.status === 'ok' && screen === 'lobby' && (
           <GlobalLobby
+            markets={live.markets}
+            failed={live.failed}
             onSelectMarket={handleSelectMarket}
             onOpenSpecs={() => setIsSpecsOpen(true)}
           />
         )}
 
-        {screen === 'chart' && selectedAsset && (
+        {live.status === 'ok' && screen === 'chart' && selectedAsset && currentMarket && (
           <MarketChartScreen
             market={currentMarket}
             onSelectSide={handleSelectSide}
@@ -140,7 +163,7 @@ export default function TugOfWarApp() {
           />
         )}
 
-        {screen === 'matches' && selectedAsset && selectedSide && (
+        {live.status === 'ok' && screen === 'matches' && selectedAsset && selectedSide && (
           <MatchesListScreen
             market={selectedAsset}
             selectedSide={selectedSide}
