@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { CryptoAsset, MarketQueueData, PositionSide } from '@/lib/types';
 import { soundFx } from '@/lib/sound';
+import { LiveTrades } from './LiveTrades';
 
 interface MarketChartScreenProps {
   market: MarketQueueData;
@@ -296,6 +297,8 @@ export const MarketChartScreen: React.FC<MarketChartScreenProps> = ({
           </div>
         </div>
       </div>
+
+      <LiveTrades market={market} />
 
       {/* Step 3: Choose Position (Bulls or Bears) */}
       <div className="space-y-4">

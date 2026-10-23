@@ -13,7 +13,7 @@ export interface LiveMarkets {
   reload: () => void;
 }
 
-const REFRESH_MS = 30_000;
+const REFRESH_MS = 60_000;
 
 export function useLiveMarkets(): LiveMarkets {
   const [state, setState] = useState<Omit<LiveMarkets, 'reload'>>({

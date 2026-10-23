@@ -1,4 +1,4 @@
-export type CryptoAsset = 'BTC' | 'ETH' | 'SOL' | 'XRP' | 'DOGE' | 'BNB';
+export type CryptoAsset = string; // base symbol of a dreamDEX perp market, e.g. 'BTC'
 
 export type PositionSide = 'bulls' | 'bears'; // bulls = Long, bears = Short
 
@@ -11,10 +11,20 @@ export interface MarketCandle {
   volumeUsd: number;
 }
 
+export interface LiveTrade {
+  id: string;
+  timestamp: number; // unix seconds
+  price: number; // USD
+  size: number; // base units, e.g. BTC
+  takerIsBuy: boolean;
+  txHash: string;
+}
+
 export interface MarketQueueData {
   ticker: CryptoAsset;
   name: string;
   pool: string; // dreamDEX perp pool address
+  baseDecimals: number;
   price: number; // last traded price, USD
   priceChange24h: number; // percentage over the last 24h of candles
   waitingBulls: number; // players waiting in the game queue (0 until the game contract exists)

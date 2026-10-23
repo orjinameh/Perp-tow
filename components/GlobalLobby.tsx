@@ -67,7 +67,7 @@ export const GlobalLobby: React.FC<GlobalLobbyProps> = ({
               Tug of War: Long vs Short Crypto Battle Royale
             </h1>
             <p className="mt-3 text-sm sm:text-base text-zinc-300 max-w-2xl leading-relaxed">
-              Predict market direction across 6 crypto assets. Each match locks at exactly 20 players with a $10 buy-in.
+              Predict market direction on any of the {markets.length} live dreamDEX perp markets. Each match locks at exactly 20 players with a $10 buy-in.
               Winners claim their original entry plus 90% of the losing team&apos;s pool.
             </p>
 
@@ -117,7 +117,7 @@ export const GlobalLobby: React.FC<GlobalLobbyProps> = ({
           <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-zinc-500" />
           <input
             type="text"
-            placeholder="Search crypto market (BTC, ETH, SOL...)"
+            placeholder="Search a perp market (BTC, ETH, SOL...)"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="w-full rounded-xl border border-zinc-800 bg-zinc-900/80 pl-10 pr-4 py-2 text-sm text-white placeholder-zinc-500 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500 transition-all"
