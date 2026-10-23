@@ -155,7 +155,32 @@ export async function enterMatch(args: {
     price,
   })) as unknown as { priceable: boolean; placeable: boolean; maxQuantity: bigint | string; limitedBy?: string };
   if (!max.priceable) throw new Error(`${ticker}-PERP has a stale mark price right now, so dreamDEX will not price an order. Try a busier market.`);
-  if (!max.placeable) throw new Error(`${ticker}-PERP cannot take this order (${max.limitedBy ?? 'limit reached'}). Check the wallet has margin: claim the paper credit first.`);
+  if (!max.placeable) {
+    // Say exactly where the money is, instead of guessing: margin bank, wallet USDso, and the SDK's deposit-like methods.
+    const safe = (v: unknown) => JSON.stringify(v, (_k, x) => (typeof x === 'bigint' ? x.toString() : x));
+    let margin = 'unreadable';
+    try {
+      const a = (await ex.client.getMarginAccount(m.marginBank, account)) as unknown as Record<string, unknown>;
+      margin = safe({ unlocked: a.unlockedCollateralBalance, locked: a.lockedCollateral, equity: a.equity });
+    } catch (e) {
+      margin = `unreadable (${e instanceof Error ? e.message.slice(0, 80) : String(e)})`;
+    }
+    let walletUsdso = 'unreadable';
+    try {
+      walletUsdso = await getUsdsoBalance(address);
+    } catch {
+      /* keep unreadable */
+    }
+    const proto = Object.getPrototypeOf(ex.trader) as object;
+    const methods = [...new Set([...Object.getOwnPropertyNames(proto), ...Object.getOwnPropertyNames(ex.trader)])]
+      .filter((n) => /deposit|margin|approve|fund|collateral/i.test(n))
+      .join(', ');
+    throw new Error(
+      `${ticker}-PERP cannot take this order (limited by ${max.limitedBy ?? 'a limit'}). ` +
+        `Account ${account}: margin bank ${margin}; game wallet USDso ${walletUsdso}; ` +
+        `SDK trader methods about margin: ${methods || 'none found'}.`,
+    );
+  }
   if (quantity > BigInt(max.maxQuantity)) throw new Error(`The largest order this wallet can place on ${ticker}-PERP is smaller than the stake size.`);
 
   const userData = encodeUserData(matchNumber);
