@@ -1,5 +1,7 @@
 'use client';
 
+import { MATCH_SIZE } from '@/lib/gameTag';
+
 import React from 'react';
 import { Swords, Volume2, VolumeX, BookOpen, RotateCcw } from 'lucide-react';
 import { PrototypeScreen } from '@/lib/types';
@@ -65,7 +67,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             Safeguards
           </button>
           <span className="text-zinc-600">·</span>
-          <span className="text-xs text-zinc-500 tabular-nums">20 Players · $10 Entry · 10% Rake</span>
+          <span className="text-xs text-zinc-500 tabular-nums">{MATCH_SIZE} Players · $10 Entry · 10% Rake</span>
         </nav>
 
         {/* Zone 3: 1 primary action & controls */}

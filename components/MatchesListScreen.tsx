@@ -81,7 +81,7 @@ export const MatchesListScreen: React.FC<MatchesListScreenProps> = ({
               </span>
             </div>
             <p className="text-xs text-zinc-400 mt-0.5">
-              Step 4: Select an active match to inspect its 20-player roster composition.
+              Step 4: Select an active match to inspect its roster composition.
             </p>
           </div>
         </div>
@@ -192,7 +192,7 @@ export const MatchesListScreen: React.FC<MatchesListScreenProps> = ({
         <Info className="h-4 w-4 text-emerald-400 shrink-0 mt-0.5" />
         <p>
           <strong className="text-zinc-200">Algorithm Rule: </strong>
-          Matches require exactly 20 players ($10 fee each). Total players <span className="font-mono text-zinc-300">N = B + S</span>, remaining slots = <span className="font-mono text-zinc-300">20 - N</span>. Payout estimates are hidden for matches with fewer than 20 players and become visible once the roster is full.
+          Matches start when {MATCH_SIZE} players have joined ($10 stake each). Total players <span className="font-mono text-zinc-300">N = B + S</span>, remaining slots = <span className="font-mono text-zinc-300">{MATCH_SIZE} - N</span>. Payout estimates are hidden for matches with a partly filled roster and become visible once the roster is full.
         </p>
       </div>
 

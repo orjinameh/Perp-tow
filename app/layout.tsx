@@ -3,16 +3,16 @@ import './globals.css'; // Global styles
 
 export const metadata: Metadata = {
   title: 'Tug of War: Crypto Prediction Arena',
-  description: 'Interactive prototype for 20-player Long vs Short crypto battle royale with real-time queue lobby, match inspection, and dynamic payout estimation.',
+  description: 'Interactive prototype for Long vs Short crypto match game on dreamDEX perps: join a match with a real market order and see the result computed from chain data.',
   openGraph: {
     title: 'Tug of War: Crypto Prediction Arena',
-    description: 'Interactive prototype for 20-player Long vs Short crypto battle royale with real-time queue lobby, match inspection, and dynamic payout estimation.',
+    description: 'Interactive prototype for Long vs Short crypto match game on dreamDEX perps: join a match with a real market order and see the result computed from chain data.',
     type: 'website',
   },
   twitter: {
     card: 'summary_large_image',
     title: 'Tug of War: Crypto Prediction Arena',
-    description: 'Interactive prototype for 20-player Long vs Short crypto battle royale with real-time queue lobby, match inspection, and dynamic payout estimation.',
+    description: 'Interactive prototype for Long vs Short crypto match game on dreamDEX perps: join a match with a real market order and see the result computed from chain data.',
   },
 };
 

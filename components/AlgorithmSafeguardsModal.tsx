@@ -1,5 +1,7 @@
 'use client';
 
+import { MATCH_SIZE } from '@/lib/gameTag';
+
 import React, { useState } from 'react';
 import {
   X,
@@ -27,8 +29,8 @@ export const AlgorithmSafeguardsModal: React.FC<AlgorithmSafeguardsModalProps> =
   const [activeTab, setActiveTab] = useState<'flow' | 'math' | 'limitations' | 'safeguards'>('flow');
 
   // Interactive sandbox for the formula tab (defaults to matched 10 Bulls vs 10 Bears)
-  const [sandboxBulls, setSandboxBulls] = useState<number>(10);
-  const sandboxBears = Math.max(1, 20 - sandboxBulls);
+  const [sandboxBulls, setSandboxBulls] = useState<number>(Math.floor(MATCH_SIZE / 2));
+  const sandboxBears = Math.max(1, MATCH_SIZE - sandboxBulls);
 
   const sandboxBullsWin = calculatePayout({
     entryFee: 10,
@@ -134,7 +136,7 @@ export const AlgorithmSafeguardsModal: React.FC<AlgorithmSafeguardsModalProps> =
                 <div className="p-3.5 rounded-xl border border-zinc-800 bg-zinc-950/40">
                   <span className="font-bold text-white">Step 1 — Initialize Application (Global Lobby)</span>
                   <p className="text-zinc-400 mt-1">
-                    Displays supported markets (BTC, ETH, SOL, XRP, DOGE, BNB) with illustrative prices, 24h change, and global waiting queues (Bulls/Bears counts searching for matches).
+                    Displays supported markets (every live dreamDEX perp market) with real prices, 24h change, and global waiting queues (Bulls/Bears counts searching for matches).
                   </p>
                 </div>
                 <div className="p-3.5 rounded-xl border border-zinc-800 bg-zinc-950/40">
@@ -158,7 +160,7 @@ export const AlgorithmSafeguardsModal: React.FC<AlgorithmSafeguardsModalProps> =
                 <div className="p-3.5 rounded-xl border border-zinc-800 bg-zinc-950/40">
                   <span className="font-bold text-white">Step 5 — Inspect a Match & Capacity Check</span>
                   <p className="text-zinc-400 mt-1">
-                    If players &lt; 20: displays composition & remaining slots, and <strong>hides payout estimates</strong>. If players == 20: activates payout calculator.
+                    If the roster is not full: displays composition & remaining slots, and <strong>hides payout estimates</strong>. If the roster is full: activates payout calculator.
                   </p>
                 </div>
                 <div className="p-3.5 rounded-xl border border-zinc-800 bg-zinc-950/40">
@@ -224,7 +226,7 @@ export const AlgorithmSafeguardsModal: React.FC<AlgorithmSafeguardsModalProps> =
                   <input
                     type="range"
                     min="1"
-                    max="19"
+                    max={MATCH_SIZE - 1}
                     value={sandboxBulls}
                     onChange={(e) => setSandboxBulls(parseInt(e.target.value))}
                     className="w-full accent-emerald-500"
@@ -286,7 +288,7 @@ export const AlgorithmSafeguardsModal: React.FC<AlgorithmSafeguardsModalProps> =
                     </tr>
                     <tr className="hover:bg-zinc-800/30">
                       <td className="p-3 font-semibold text-white">Market prices</td>
-                      <td className="p-3 text-zinc-400">Static illustrative values</td>
+                      <td className="p-3 text-zinc-400">Live dreamDEX data</td>
                       <td className="p-3 text-emerald-400">Live price feed with timestamps</td>
                     </tr>
                     <tr className="hover:bg-zinc-800/30">
@@ -362,7 +364,7 @@ export const AlgorithmSafeguardsModal: React.FC<AlgorithmSafeguardsModalProps> =
                     <span>Define the Entry Lock</span>
                   </div>
                   <p className="text-zinc-400">
-                    The system must establish the exact instant the 20-player roster becomes immutable and what happens if a downstream transaction fails.
+                    The system must establish the exact instant the roster becomes immutable and what happens if a downstream transaction fails.
                   </p>
                 </div>
 

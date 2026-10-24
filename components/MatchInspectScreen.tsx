@@ -1,5 +1,7 @@
 'use client';
 
+import { MATCH_SIZE } from '@/lib/gameTag';
+
 import React, { useState } from 'react';
 import Image from 'next/image';
 import {
@@ -386,7 +388,7 @@ export const MatchInspectScreen: React.FC<MatchInspectScreenProps> = ({
                     Step 6 — Roster Full (20/20)
                   </span>
                   <span className="text-xs text-zinc-500">·</span>
-                  <span className="text-xs text-zinc-400 font-mono">$200 Total Locked Pool</span>
+                  <span className="text-xs text-zinc-400 font-mono">${CORE_RULES.ENTRY_FEE * CORE_RULES.REQUIRED_PLAYERS} Total Pool</span>
                 </div>
                 <h3 className="text-xl sm:text-2xl font-black text-white">
                   Authoritative Payout Calculation Matrix
