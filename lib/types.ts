@@ -53,9 +53,14 @@ export interface GameMatch {
   requiredPlayers: number; // always 20
   slotsRemaining: number;
   entryFee: number; // $10
-  status: 'filling' | 'full' | 'settled';
+  status: 'filling' | 'full' | 'running' | 'settled';
   playersList?: PlayerSlot[];
-  settledResult?: 'bulls' | 'bears';
+  settledResult?: 'bulls' | 'bears' | 'tie';
+  startedAt?: number; // unix seconds: when the last seat was taken
+  endsAt?: number;
+  startPrice?: number; // USD, from the market's 1-minute candles at startedAt
+  endPrice?: number; // USD at endsAt (only once the match is over)
+  livePrice?: number; // USD, latest candle close while the match runs
 }
 
 export interface PayoutBreakdown {

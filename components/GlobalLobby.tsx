@@ -1,5 +1,6 @@
 'use client';
 
+import { MATCH_SIZE } from '@/lib/gameTag';
 import React, { useState } from 'react';
 import Image from 'next/image';
 import {
@@ -67,7 +68,7 @@ export const GlobalLobby: React.FC<GlobalLobbyProps> = ({
               Tug of War: Long vs Short Crypto Battle Royale
             </h1>
             <p className="mt-3 text-sm sm:text-base text-zinc-300 max-w-2xl leading-relaxed">
-              Predict market direction on any of the {markets.length} live dreamDEX perp markets. Each match locks at exactly 20 players with a $10 buy-in.
+              Predict market direction on any of the {markets.length} live dreamDEX perp markets. Each match starts when {MATCH_SIZE} players have joined; entries are real dreamDEX market orders.
               Winners claim their original entry plus 90% of the losing team&apos;s pool.
             </p>
 
@@ -106,7 +107,7 @@ export const GlobalLobby: React.FC<GlobalLobbyProps> = ({
           </p>
           <p className="leading-relaxed">
             The waiting counts below indicate the <strong className="text-zinc-300">global matchmaking pool</strong> searching for matches in each market.
-            Matches are isolated by asset—BTC players cannot face ETH players. Select a market to view its interactive price chart, pick your position (Bulls or Bears), and inspect active 20-player lobbies.
+            Matches are isolated by asset—BTC players cannot face ETH players. Select a market to view its interactive price chart, pick your position (Bulls or Bears), and inspect active {MATCH_SIZE}-player lobbies.
           </p>
         </div>
       </div>

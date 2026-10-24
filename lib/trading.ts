@@ -226,3 +226,43 @@ export async function enterMatch(args: {
     raisedToMinimum,
   };
 }
+
+/** Closes the game wallet's open position on a market with a reducing market order. */
+export async function closeMyPosition(key: Hex, address: Hex, ticker: string): Promise<string> {
+  const ex = makeExchange(key);
+  const rows = (await ex.client.listPerpMarkets()) as unknown as PerpRow[];
+  const m = rows.find((r) => r.baseSymbol === ticker);
+  if (!m) throw new Error(`${ticker} is not a dreamDEX perp market right now.`);
+  const preview = (await ex.client.previewPerpClosePnl({
+    pool: m.poolAddress,
+    marginBank: m.marginBank,
+    account: address,
+  })) as unknown as { priceable: boolean; closedQuantity: bigint; isLong?: boolean; side?: string };
+  if (!preview.priceable) throw new Error(`${ticker}-PERP is not priceable right now, so the close cannot be sized. Try again shortly.`);
+  if (preview.closedQuantity <= 0n) return `No open ${ticker} position to close.`;
+
+  // Which way the position points: the preview may say so; otherwise read the margin account's position.
+  let wasLong: boolean | undefined = preview.isLong ?? (preview.side ? preview.side === 'long' : undefined);
+  if (wasLong === undefined) {
+    const acct = (await ex.client.getMarginAccount(m.marginBank, address)) as unknown as { positions?: { pool?: string; size?: bigint; quantity?: bigint; isLong?: boolean }[] };
+    const p = acct.positions?.find((x) => x.pool?.toLowerCase() === m.poolAddress.toLowerCase());
+    if (p?.isLong !== undefined) wasLong = p.isLong;
+    else if (p) wasLong = BigInt(p.size ?? p.quantity ?? 0n) > 0n;
+  }
+  if (wasLong === undefined) throw new Error('Could not tell whether the position is long or short, so nothing was sent.');
+
+  const isBid = !wasLong; // closing a long means selling
+  const mark = BigInt(m.markPrice);
+  const tick = BigInt(m.tickSize);
+  const slipped = isBid ? (mark * (10_000n + SLIPPAGE_BPS)) / 10_000n : (mark * (10_000n - SLIPPAGE_BPS)) / 10_000n;
+  const price = tick > 0n ? (slipped / tick) * tick : slipped;
+  const res = (await ex.trader.placePerpOrder({
+    pool: m.poolAddress,
+    isBid,
+    price,
+    quantity: preview.closedQuantity,
+    orderType: ORDER_TYPE_MARKET,
+  })) as unknown as { hash?: string; receipt?: { status?: string } };
+  if (res.receipt?.status && res.receipt.status !== 'success') throw new Error('The close transaction reverted on chain.');
+  return `Position closed.${res.hash ? ` Tx ${res.hash}` : ''}`;
+}

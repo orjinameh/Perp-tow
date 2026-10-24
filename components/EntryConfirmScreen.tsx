@@ -1,5 +1,6 @@
 'use client';
 
+import { MATCH_SIZE, NOMINAL_STAKE_USD } from '@/lib/gameTag';
 import React from 'react';
 import Image from 'next/image';
 import {
@@ -36,7 +37,7 @@ export const EntryConfirmScreen: React.FC<EntryConfirmScreenProps> = ({
   onEntered,
   onBackToInspect,
 }) => {
-  const isFull = match.total === 20;
+  const isFull = match.total === MATCH_SIZE;
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
 
@@ -146,14 +147,14 @@ export const EntryConfirmScreen: React.FC<EntryConfirmScreenProps> = ({
             <span className="text-zinc-500">Entry Fee (Stake)</span>
             <div className="text-base font-bold text-white font-mono">$10.00 USD</div>
             <p className="text-[11px] text-zinc-500">
-              Fixed buy-in ($200 total locked pool at 20 players).
+              Fixed buy-in (${NOMINAL_STAKE_USD * MATCH_SIZE} total pool at {MATCH_SIZE} players).
             </p>
           </div>
 
           <div className="rounded-2xl border border-zinc-800 bg-zinc-950/50 p-4 space-y-1">
             <span className="text-zinc-500">Roster Capacity Status</span>
             <div className="text-base font-bold text-white font-mono">
-              {match.total} / 20 Players
+              {match.total} / {MATCH_SIZE} Players
             </div>
             <p className="text-[11px] text-zinc-500">
               {match.bulls} Bulls · {match.bears} Bears · {match.slotsRemaining} Slots Open
@@ -171,7 +172,7 @@ export const EntryConfirmScreen: React.FC<EntryConfirmScreenProps> = ({
                   </span>
                 </div>
                 <p className="text-[11px] text-emerald-500/80">
-                  Calculated based on locked 20-player final roster.
+                  Calculated based on final {MATCH_SIZE}-player roster.
                 </p>
               </div>
             ) : (
@@ -180,7 +181,7 @@ export const EntryConfirmScreen: React.FC<EntryConfirmScreenProps> = ({
                   Hidden / Pending
                 </div>
                 <p className="text-[11px] text-zinc-500">
-                  Revealed once all 20 slots fill (Step 5 rule).
+                  Revealed once all {MATCH_SIZE} slots fill (Step 5 rule).
                 </p>
               </div>
             )}
@@ -201,7 +202,7 @@ export const EntryConfirmScreen: React.FC<EntryConfirmScreenProps> = ({
             {!wallet.address && (
               <p className="text-amber-300">Create or import a game wallet in the bar at the top of the page first.</p>
             )}
-            {match.total >= 20 && (
+            {match.total >= MATCH_SIZE && (
               <p className="text-amber-300">This match already has 20 players. Open a new match instead.</p>
             )}
             {error && <p className="text-rose-300">Entry failed: {error}</p>}
@@ -221,7 +222,7 @@ export const EntryConfirmScreen: React.FC<EntryConfirmScreenProps> = ({
           </button>
 
           <button
-            disabled={busy || !wallet.address || match.total >= 20}
+            disabled={busy || !wallet.address || match.total >= MATCH_SIZE}
             onClick={placeEntry}
             className="w-full sm:w-auto disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-zinc-950 font-black text-sm py-3.5 px-8 shadow-xl shadow-emerald-500/30 transition-transform hover:scale-[1.02]"
           >

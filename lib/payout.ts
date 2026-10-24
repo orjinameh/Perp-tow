@@ -1,7 +1,9 @@
 import { DualScenarioPayout, PayoutBreakdown } from './types';
 
+import { MATCH_SIZE } from './gameTag';
+
 export const CORE_RULES = {
-  REQUIRED_PLAYERS: 20,
+  REQUIRED_PLAYERS: MATCH_SIZE,
   ENTRY_FEE: 10, // $10 per player
   RAKE_RATE: 0.10, // 10% of the losing team's pool
 };

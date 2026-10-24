@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import { CryptoAsset, GameMatch, PositionSide } from '@/lib/types';
 import { calculatePayout, calculateScenarioPayouts, CORE_RULES } from '@/lib/payout';
+import { MatchStatusPanel } from './MatchStatusPanel';
 import { TugOfWarRope } from './TugOfWarRope';
 import { ThreeTugOfWarArena } from './ThreeTugOfWarArena';
 import { soundFx } from '@/lib/sound';
@@ -75,7 +76,7 @@ export const MatchInspectScreen: React.FC<MatchInspectScreenProps> = ({
     bears: bearsCount,
     total: totalPlayers,
     slotsRemaining,
-    status: isFull ? 'full' : 'filling',
+    status: initialMatch.status === 'filling' && isFull ? 'full' : initialMatch.status,
   };
 
   return (
@@ -108,7 +109,7 @@ export const MatchInspectScreen: React.FC<MatchInspectScreenProps> = ({
               </span>
             </div>
             <p className="text-xs text-zinc-400 mt-0.5">
-              Step 5 & 6: Inspect 20-player roster composition and evaluate payout formulas.
+              Step 5 & 6: Inspect roster composition and evaluate payout formulas.
             </p>
           </div>
         </div>
@@ -220,7 +221,7 @@ export const MatchInspectScreen: React.FC<MatchInspectScreenProps> = ({
           <div className="flex items-center gap-2 flex-wrap">
             <h2 className="text-base font-bold text-white flex items-center gap-2">
               <Users className="h-4 w-4 text-zinc-400" />
-              <span>20-Seat Arena Roster</span>
+              <span>{CORE_RULES.REQUIRED_PLAYERS}-Seat Arena Roster</span>
             </h2>
             {bullsCount === bearsCount ? (
               <span className="text-[11px] font-semibold text-emerald-400 bg-emerald-500/10 border border-emerald-500/30 px-2.5 py-0.5 rounded-full flex items-center gap-1">
@@ -240,7 +241,7 @@ export const MatchInspectScreen: React.FC<MatchInspectScreenProps> = ({
         </div>
 
         <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-5 gap-3">
-          {Array.from({ length: 20 }).map((_, idx) => {
+          {Array.from({ length: CORE_RULES.REQUIRED_PLAYERS }).map((_, idx) => {
             const slotNum = idx + 1;
             let slotType: 'bull' | 'bear' | 'empty' = 'empty';
             let label = `Slot #${slotNum}`;
@@ -289,6 +290,8 @@ export const MatchInspectScreen: React.FC<MatchInspectScreenProps> = ({
         </div>
       </div>
 
+      <MatchStatusPanel match={initialMatch} />
+
       {/* Step 5 Capacity Check & Payout Visibility */}
       {!isFull ? (
         /* CASE 1: Players < 20 -> HIDE PAYOUT ESTIMATE */
@@ -304,7 +307,7 @@ export const MatchInspectScreen: React.FC<MatchInspectScreenProps> = ({
                 </span>
                 <span className="text-xs text-zinc-500">·</span>
                 <span className="text-xs text-zinc-400 font-mono">
-                  {totalPlayers} of 20 Players Present
+                  {totalPlayers} of {CORE_RULES.REQUIRED_PLAYERS} Players Present
                 </span>
               </div>
               <h3 className="text-xl font-bold text-white">

@@ -310,7 +310,7 @@ export const MarketChartScreen: React.FC<MarketChartScreenProps> = ({
             Pick Your Team: Bulls (Long) vs Bears (Short)
           </h2>
           <p className="text-xs text-zinc-400 mt-1">
-            Selecting a position records your bias and filters available 20-player matches for {market.ticker}.
+            Selecting a position records your bias and filters available matches for {market.ticker}.
           </p>
         </div>
 

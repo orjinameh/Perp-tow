@@ -1,5 +1,6 @@
 'use client';
 
+import { MATCH_SIZE, NOMINAL_STAKE_USD } from '@/lib/gameTag';
 import React, { useState } from 'react';
 import Image from 'next/image';
 import {
@@ -45,8 +46,8 @@ export const MatchesListScreen: React.FC<MatchesListScreenProps> = ({
   const activePreviewMatch = matches.find((m) => m.id === previewMatchId) || matches[0];
 
   const filteredMatches = matches.filter((m) => {
-    if (filterState === 'filling') return m.total < 20;
-    if (filterState === 'full') return m.total === 20;
+    if (filterState === 'filling') return m.status === 'filling';
+    if (filterState === 'full') return m.status !== 'filling';
     return true;
   });
 
@@ -231,8 +232,8 @@ export const MatchesListScreen: React.FC<MatchesListScreenProps> = ({
       {/* Matches Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
         {filteredMatches.map((match) => {
-          const isFull = match.total >= 20;
-          const slotsLeft = Math.max(0, 20 - match.total);
+          const isFull = match.total >= MATCH_SIZE;
+          const slotsLeft = Math.max(0, MATCH_SIZE - match.total);
           const bullsRatio = Math.round((match.bulls / Math.max(1, match.total)) * 100);
 
           return (
@@ -255,7 +256,7 @@ export const MatchesListScreen: React.FC<MatchesListScreenProps> = ({
                       {match.id}
                     </h3>
                     <div className="text-xs text-zinc-500 font-mono">
-                      $10 Entry · $200 Pool
+                      ${NOMINAL_STAKE_USD} Entry · ${NOMINAL_STAKE_USD * MATCH_SIZE} Pool
                     </div>
                   </div>
                 </div>
@@ -264,7 +265,7 @@ export const MatchesListScreen: React.FC<MatchesListScreenProps> = ({
                   {isFull ? (
                     <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/15 border border-amber-500/30 px-2.5 py-0.5 text-xs font-semibold text-amber-300">
                       <Sparkles className="h-3 w-3" />
-                      <span>Roster Full (20/20)</span>
+                      <span>{match.status === 'settled' ? `Settled · ${match.settledResult === 'tie' ? 'tie' : match.settledResult + ' won'}` : match.status === 'running' ? 'Running' : `Roster Full (${MATCH_SIZE}/${MATCH_SIZE})`}</span>
                     </span>
                   ) : (
                     <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-0.5 text-xs font-semibold text-emerald-400">
@@ -284,7 +285,7 @@ export const MatchesListScreen: React.FC<MatchesListScreenProps> = ({
                   </div>
                   <div className="flex items-center gap-1 text-zinc-400 font-mono text-[11px]">
                     <Users className="h-3 w-3 text-zinc-500" />
-                    <span>{match.total} / 20</span>
+                    <span>{match.total} / {MATCH_SIZE}</span>
                   </div>
                   <div className="flex items-center gap-1.5 text-rose-400 font-medium">
                     <span className="text-zinc-500">({100 - bullsRatio}%)</span>
