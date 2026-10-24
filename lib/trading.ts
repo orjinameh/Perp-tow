@@ -49,23 +49,6 @@ function makeExchange(key: Hex) {
   return new SomniaMarkets({ ...baseConfig(), privateKey: key });
 }
 
-/** Read-only view of someone's account (used when the game wallet trades for a linked account). */
-function makeReadOnly(account: Hex) {
-  return new SomniaMarkets({ ...baseConfig(), account });
-}
-
-/** Whether the game wallet has been linked as a bot on this dreamDEX account (checked on the BTC pool). */
-export async function checkLink(key: Hex, owner: Hex): Promise<string> {
-  const { createTradingKey, canPlaceFor, LINK_HELP } = await import('./operator');
-  const tk = createTradingKey(owner, key);
-  const rows = (await makeReadOnly(owner).client.listPerpMarkets()) as unknown as PerpRow[];
-  const pool = (rows.find((r) => r.baseSymbol === 'BTC') ?? rows[0])?.poolAddress;
-  if (!pool) throw new Error('No perp market was returned.');
-  return (await canPlaceFor(tk, pool))
-    ? `Linked: the game wallet can place orders for ${owner}.`
-    : LINK_HELP(tk.operator, owner);
-}
-
 export async function getSttBalance(address: Hex): Promise<string> {
   const client = createPublicClient({ chain: hidekiTestnet, transport: http(RPC_URL) });
   return formatEther(await client.getBalance({ address }));
@@ -83,6 +66,44 @@ export async function getUsdsoBalance(address: Hex): Promise<string> {
     args: [address],
   })) as bigint;
   return formatUnits(raw, 18);
+}
+
+/** Moves the game wallet's USDso into its perps margin bank, which is where perp orders lock their margin. */
+export async function depositAllToMargin(key: Hex, address: Hex): Promise<string> {
+  const ex = makeExchange(key);
+  const rows = (await ex.client.listPerpMarkets()) as unknown as PerpRow[];
+  const bank = (rows.find((r) => r.baseSymbol === 'BTC') ?? rows[0])?.marginBank;
+  if (!bank) throw new Error('No perp market was returned, so there is no margin bank to deposit into.');
+  const walletClient = createPublicClient({ chain: hidekiTestnet, transport: http(RPC_URL) });
+  const raw = (await walletClient.readContract({
+    address: USDSO,
+    abi: parseAbi(['function balanceOf(address) view returns (uint256)']),
+    functionName: 'balanceOf',
+    args: [address],
+  })) as bigint;
+  if (raw === 0n) throw new Error('The game wallet holds no USDso to deposit.');
+
+  const deposit = (ex.trader as unknown as Record<string, (...a: unknown[]) => Promise<unknown>>).depositMargin;
+  const call = deposit.bind(ex.trader);
+  try {
+    await call({ marginBank: bank, amount: raw });
+  } catch (first) {
+    const msg = first instanceof Error ? first.message : String(first);
+    // Argument-shape errors are thrown before anything is sent, so trying the positional form cannot double-send.
+    if (/reverted|insufficient|allowance/i.test(msg) || !/marginBank|amount|argument|invalid|undefined|required|bigint|type/i.test(msg)) {
+      throw first;
+    }
+    try {
+      await call(bank, raw);
+    } catch (second) {
+      throw new Error(
+        `depositMargin failed both as an object and as (bank, amount). First: ${msg.slice(0, 160)} | Second: ${
+          second instanceof Error ? second.message.slice(0, 160) : String(second)
+        } | function: ${String(deposit).slice(0, 300)}`,
+      );
+    }
+  }
+  return `Deposited ${formatUnits(raw, 18)} USDso into the margin bank.`;
 }
 
 /** Claims the one-time paper USDso credit for this wallet, if it is still eligible. */
@@ -113,15 +134,14 @@ export async function claimPaperCredit(key: Hex, address: Hex): Promise<string> 
 export async function enterMatch(args: {
   key: Hex;
   address: Hex;
-  owner: Hex | null; // set: trade for this linked dreamDEX account; null: trade the game wallet's own account
   ticker: string;
   side: PositionSide;
   matchNumber: number;
   stakeUsd: number;
 }): Promise<EntryReceipt> {
-  const { key, address, owner, ticker, side, matchNumber, stakeUsd } = args;
-  const account = owner ?? address;
-  const ex = owner ? makeReadOnly(owner) : makeExchange(key);
+  const { key, address, ticker, side, matchNumber, stakeUsd } = args;
+  const account = address; // the game wallet always trades its own account
+  const ex = makeExchange(key);
   const rows = (await ex.client.listPerpMarkets()) as unknown as PerpRow[];
   const m = rows.find((r) => r.baseSymbol === ticker);
   if (!m) throw new Error(`${ticker} is not a dreamDEX perp market right now.`);
@@ -184,22 +204,14 @@ export async function enterMatch(args: {
   if (quantity > BigInt(max.maxQuantity)) throw new Error(`The largest order this wallet can place on ${ticker}-PERP is smaller than the stake size.`);
 
   const userData = encodeUserData(matchNumber);
-  let res: { hash?: string; orderId?: bigint; receipt?: { status?: string }; fills?: { quantityFilled: bigint }[] };
-  if (owner) {
-    const { createTradingKey, canPlaceFor, placeFor, LINK_HELP } = await import('./operator');
-    const tk = createTradingKey(owner, key);
-    if (!(await canPlaceFor(tk, m.poolAddress))) throw new Error(LINK_HELP(tk.operator, owner));
-    res = await placeFor(tk, { pool: m.poolAddress, isBid, price, quantity, orderType: ORDER_TYPE_MARKET, userData });
-  } else {
-    res = (await ex.trader.placePerpOrder({
-      pool: m.poolAddress,
-      isBid,
-      price,
-      quantity,
-      orderType: ORDER_TYPE_MARKET,
-      userData,
-    })) as unknown as typeof res;
-  }
+  const res = (await ex.trader.placePerpOrder({
+    pool: m.poolAddress,
+    isBid,
+    price,
+    quantity,
+    orderType: ORDER_TYPE_MARKET,
+    userData,
+  })) as unknown as { hash?: string; orderId?: bigint; receipt?: { status?: string }; fills?: { quantityFilled: bigint }[] };
 
   if (res.receipt?.status && res.receipt.status !== 'success') throw new Error('The order transaction reverted on chain.');
   const filled = (res.fills ?? []).reduce((s, f) => s + f.quantityFilled, 0n);

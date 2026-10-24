@@ -50,7 +50,6 @@ export const EntryConfirmScreen: React.FC<EntryConfirmScreenProps> = ({
       const receipt = await enterMatch({
         key: wallet.key,
         address: wallet.address,
-        owner: wallet.owner,
         ticker: market,
         side: selectedSide,
         matchNumber: Number(match.id.split('#')[1]),
