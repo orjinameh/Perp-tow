@@ -6,6 +6,7 @@ import React from 'react';
 import { Swords, Volume2, VolumeX, BookOpen, RotateCcw } from 'lucide-react';
 import { PrototypeScreen } from '@/lib/types';
 import { soundFx } from '@/lib/sound';
+import { ThemeToggle } from '@/components/ThemeToggle';
 
 interface NavbarProps {
   currentScreen: PrototypeScreen;
@@ -72,6 +73,7 @@ export const Navbar: React.FC<NavbarProps> = ({
 
         {/* Zone 3: 1 primary action & controls */}
         <div className="flex items-center gap-2.5 shrink-0">
+          <ThemeToggle />
           <button
             onClick={onToggleMute}
             aria-label={isMuted ? 'Unmute sounds' : 'Mute sounds'}

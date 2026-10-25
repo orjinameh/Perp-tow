@@ -312,3 +312,13 @@ export async function withdrawAllFromMargin(key: Hex, address: Hex): Promise<str
   }
   return `Withdrew ${formatUnits(unlocked, 18)} USDso from margin to the wallet.`;
 }
+
+/** True only while this wallet really holds an open position on the market. */
+export async function hasOpenPosition(key: Hex, address: Hex, ticker: string): Promise<boolean> {
+  const ex = makeExchange(key);
+  const rows = (await ex.client.listPerpMarkets()) as unknown as PerpRow[];
+  const m = rows.find((r) => r.baseSymbol === ticker);
+  if (!m) return false;
+  const preview = (await ex.client.previewPerpClosePnl({ pool: m.poolAddress, marginBank: m.marginBank, account: address })) as unknown as { closedQuantity: bigint };
+  return preview.closedQuantity > 0n;
+}

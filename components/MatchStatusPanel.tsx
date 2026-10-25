@@ -18,6 +18,7 @@ const Inner: React.FC<{ match: GameMatch; progress: ReturnType<typeof useProgres
   const [now, setNow] = useState(() => Math.floor(Date.now() / 1000));
   const [msg, setMsg] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [openPos, setOpenPos] = useState(false);
   const [escrow, setEscrow] = useState<{ result: number; joined: boolean; claimed: boolean } | null>(null);
   const number = Number(match.id.split('#')[1]);
   const escrowOn = Boolean(process.env.NEXT_PUBLIC_ESCROW_ADDRESS);
@@ -40,6 +41,25 @@ const Inner: React.FC<{ match: GameMatch; progress: ReturnType<typeof useProgres
       off = true;
     };
   }, [wallet.address, match.market, match.status, number, msg]);
+
+  // The close button only exists while a real position is open; checked on the chain, not assumed.
+  useEffect(() => {
+    if (!wallet.key || !wallet.address) return;
+    let off = false;
+    const check = () =>
+      import('@/lib/trading')
+        .then((t) => t.hasOpenPosition(wallet.key as `0x${string}`, wallet.address as `0x${string}`, match.market))
+        .then((v) => {
+          if (!off) setOpenPos(v);
+        })
+        .catch(() => {});
+    check();
+    const id = setInterval(check, 8000);
+    return () => {
+      off = true;
+      clearInterval(id);
+    };
+  }, [wallet.key, wallet.address, match.market, msg]);
 
   const me = match.playersList?.find((p) => p.isUser);
   const key = wallet.key as `0x${string}` | null;
@@ -157,7 +177,7 @@ const Inner: React.FC<{ match: GameMatch; progress: ReturnType<typeof useProgres
   }
 
   const start = match.startPrice;
-  const closeButton = me && (
+  const closeButton = me && openPos && (
     <button onClick={doClose} disabled={busy} className={`${btn} border-zinc-700 bg-zinc-800 text-zinc-200 hover:bg-zinc-700`}>
       {busy ? <span className="inline-flex items-center gap-1.5"><Spinner className="h-3 w-3" />Closing…</span> : `Close my ${match.market} position`}
     </button>
