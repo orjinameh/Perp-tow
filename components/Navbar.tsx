@@ -7,6 +7,7 @@ import { Swords, Volume2, VolumeX, BookOpen, RotateCcw } from 'lucide-react';
 import { PrototypeScreen } from '@/lib/types';
 import { soundFx } from '@/lib/sound';
 import { ThemeToggle } from '@/components/ThemeToggle';
+import { Box } from 'lucide-react';
 
 interface NavbarProps {
   currentScreen: PrototypeScreen;
@@ -14,6 +15,8 @@ interface NavbarProps {
   onOpenSpecs: () => void;
   isMuted: boolean;
   onToggleMute: () => void;
+  view?: 'world' | 'classic';
+  onToggleView?: () => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -22,6 +25,8 @@ export const Navbar: React.FC<NavbarProps> = ({
   onOpenSpecs,
   isMuted,
   onToggleMute,
+  view,
+  onToggleView,
 }) => {
   return (
     <header className="sticky top-0 z-40 w-full border-b border-zinc-800/80 bg-zinc-950/90 backdrop-blur-md">
@@ -73,6 +78,17 @@ export const Navbar: React.FC<NavbarProps> = ({
 
         {/* Zone 3: 1 primary action & controls */}
         <div className="flex items-center gap-2.5 shrink-0">
+          {onToggleView && (
+            <button
+              onClick={onToggleView}
+              aria-label="Switch between the 3D world and the classic screens"
+              title={view === 'world' ? 'Switch to the classic screens' : 'Switch to the 3D world'}
+              className="flex h-9 items-center gap-1.5 rounded-lg border border-zinc-800 bg-zinc-900/80 px-2.5 text-xs font-semibold text-zinc-300 transition-colors hover:border-zinc-700 hover:text-white"
+            >
+              <Box className="h-4 w-4" />
+              <span className="hidden sm:inline">{view === 'world' ? '3D' : 'Classic'}</span>
+            </button>
+          )}
           <ThemeToggle />
           <button
             onClick={onToggleMute}
