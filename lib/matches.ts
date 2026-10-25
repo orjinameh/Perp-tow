@@ -11,7 +11,8 @@ interface RawOrder {
 }
 
 async function gql<T>(query: string): Promise<T> {
-  const res = await fetch('/api/indexer', {
+  const url = typeof window === 'undefined' ? process.env.INDEXER_URL ?? 'https://hideki-dev.smk.somnia.host/v1/graphql' : '/api/indexer';
+  const res = await fetch(url, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ query }),
@@ -176,4 +177,12 @@ export function draftMatch(ticker: string, number: number): GameMatch {
     status: 'filling',
     playersList: [],
   };
+}
+
+/** How hard the rope is pulled by the price move: -1 (Bears) to +1 (Bulls), full pull at a 0.15% move. */
+export function matchPull(m: GameMatch): { bias: number; label: string } | null {
+  const end = m.endPrice ?? m.livePrice;
+  if (m.status === 'filling' || !m.startPrice || !end) return null;
+  const movePct = ((end - m.startPrice) / m.startPrice) * 100;
+  return { bias: Math.max(-1, Math.min(1, movePct / 0.15)), label: `${movePct >= 0 ? '+' : ''}${movePct.toFixed(3)}%` };
 }

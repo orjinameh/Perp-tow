@@ -15,6 +15,36 @@ export const MatchStatusPanel: React.FC<{ match: GameMatch }> = ({ match }) => {
   const [now, setNow] = useState(() => Math.floor(Date.now() / 1000));
   const [msg, setMsg] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [escrow, setEscrow] = useState<{ result: number; joined: boolean; claimed: boolean } | null>(null);
+  const number = Number(match.id.split('#')[1]);
+
+  useEffect(() => {
+    if (!wallet.address || match.status === 'filling') return;
+    let off = false;
+    import('@/lib/escrow').then((e) => e.escrowStatus(match.market, number, wallet.address as `0x${string}`)).then((s) => { if (!off) setEscrow(s); }).catch(() => {});
+    return () => { off = true; };
+  }, [wallet.address, match.market, match.status, number, msg]);
+
+  const claim = async () => {
+    if (!wallet.key || !wallet.address) return;
+    setBusy(true);
+    setMsg(null);
+    try {
+      const e = await import('@/lib/escrow');
+      const hash = await e.claimEscrow(wallet.key as `0x${string}`, wallet.address as `0x${string}`, match.market, number);
+      setMsg(`Payout claimed. Tx ${hash}`);
+    } catch (err) {
+      setMsg(err instanceof Error ? err.message.split('\n')[0] : String(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const claimButton = escrow && escrow.joined && escrow.result !== 0 && !escrow.claimed && (
+    <button onClick={claim} disabled={busy} className="rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-1.5 text-xs text-emerald-300 hover:bg-emerald-500/20 disabled:opacity-50">
+      {busy ? 'Claiming…' : 'Claim payout'}
+    </button>
+  );
 
   useEffect(() => {
     const id = setInterval(() => setNow(Math.floor(Date.now() / 1000)), 1000);
@@ -99,7 +129,8 @@ export const MatchStatusPanel: React.FC<{ match: GameMatch }> = ({ match }) => {
           {mySide && (mySide === result ? ' You were on the winning side.' : ' You were on the losing side.')}
         </div>
       )}
-      <div className="text-[11px] text-zinc-500">Results are computed from public chain data. This prototype does not move the prize money; your real position's profit or loss on dreamDEX is separate.</div>
+      <div className="text-[11px] text-zinc-500">{escrow ? 'Stakes are held by the escrow contract. The operator posts the result, then each winner claims.' : 'Results are computed from public chain data. The escrow is not switched on, so no prize money moves; your real position on dreamDEX is separate.'}</div>
+      {claimButton}
       {closeButton}
     </div>
   );

@@ -48,6 +48,9 @@ export const EntryConfirmScreen: React.FC<EntryConfirmScreenProps> = ({
     try {
       // Loaded only now, in the browser, so the SDK never runs during server rendering.
       const { enterMatch } = await import('@/lib/trading');
+      const { joinEscrow } = await import('@/lib/escrow');
+      // With the escrow switched on, the stake goes in first; if it fails, no order is placed.
+      await joinEscrow(wallet.key, wallet.address as `0x${string}`, market, Number(match.id.split('#')[1]), selectedSide, CORE_RULES.ENTRY_FEE);
       const receipt = await enterMatch({
         key: wallet.key,
         address: wallet.address,

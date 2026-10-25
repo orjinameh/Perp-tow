@@ -75,13 +75,15 @@ export async function depositAllToMargin(key: Hex, address: Hex): Promise<string
   const bank = (rows.find((r) => r.baseSymbol === 'BTC') ?? rows[0])?.marginBank;
   if (!bank) throw new Error('No perp market was returned, so there is no margin bank to deposit into.');
   const walletClient = createPublicClient({ chain: hidekiTestnet, transport: http(RPC_URL) });
-  const raw = (await walletClient.readContract({
+  let raw = (await walletClient.readContract({
     address: USDSO,
     abi: parseAbi(['function balanceOf(address) view returns (uint256)']),
     functionName: 'balanceOf',
     args: [address],
   })) as bigint;
-  if (raw === 0n) throw new Error('The game wallet holds no USDso to deposit.');
+  // With the escrow on, keep 20 USDso in the wallet for stakes; the rest goes to margin.
+  if (process.env.NEXT_PUBLIC_ESCROW_ADDRESS) raw = raw > 20n * 10n ** 18n ? raw - 20n * 10n ** 18n : 0n;
+  if (raw === 0n) throw new Error('Nothing to deposit (with the escrow on, 20 USDso stay in the wallet for stakes).');
 
   const deposit = (ex.trader as unknown as Record<string, (...a: unknown[]) => Promise<unknown>>).depositMargin;
   const call = deposit.bind(ex.trader);
