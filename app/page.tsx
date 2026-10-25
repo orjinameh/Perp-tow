@@ -13,6 +13,7 @@ import { useMatches } from '@/lib/useMatches';
 import { draftMatch, nextMatchNumber } from '@/lib/matches';
 import type { EntryReceipt } from '@/lib/trading';
 import { WalletPanel } from '@/components/WalletPanel';
+import { useAutoTrade } from '@/lib/useAutoTrade';
 import { CORE_RULES } from '@/lib/payout';
 import { soundFx } from '@/lib/sound';
 import { Navbar } from '@/components/Navbar';
@@ -33,6 +34,7 @@ export default function TugOfWarApp() {
   const [selectedMatch, setSelectedMatch] = useState<GameMatch | null>(null);
   const [receipt, setReceipt] = useState<EntryReceipt | null>(null);
   const wallet = useGameWallet();
+  const autoTradeNote = useAutoTrade(wallet);
 
   // Modal and Sound states
   const [isSpecsOpen, setIsSpecsOpen] = useState<boolean>(false);
@@ -132,6 +134,9 @@ export default function TugOfWarApp() {
       />
 
       <WalletPanel wallet={wallet} />
+      {autoTradeNote && (
+        <div className="border-b border-amber-500/30 bg-amber-950/30 px-4 py-2 text-center text-xs text-amber-200">{autoTradeNote}</div>
+      )}
 
       {/* Step Flow Ribbon Indicator */}
       <FlowBreadcrumbs
@@ -214,6 +219,7 @@ export default function TugOfWarApp() {
             selectedSide={selectedSide}
             match={selectedMatch}
             wallet={wallet}
+            pool={currentMarket?.pool ?? ''}
             onEntered={handleEntered}
             onBackToInspect={() => setScreen('inspect')}
           />
