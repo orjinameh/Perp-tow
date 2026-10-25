@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import { CryptoAsset, GameMatch, PositionSide } from '@/lib/types';
 import { calculatePayout, calculateScenarioPayouts, CORE_RULES } from '@/lib/payout';
+import { matchPull } from '@/lib/matches';
 import { MatchStatusPanel } from './MatchStatusPanel';
 import { TugOfWarRope } from './TugOfWarRope';
 import { ThreeTugOfWarArena } from './ThreeTugOfWarArena';
@@ -49,6 +50,7 @@ export const MatchInspectScreen: React.FC<MatchInspectScreenProps> = ({
   const bearsCount = initialMatch.bears;
   const [arenaMode, setArenaMode] = useState<'3d' | '2d'>('3d');
 
+  const pull = matchPull(initialMatch);
   const totalPlayers = bullsCount + bearsCount;
   const isFull = totalPlayers === CORE_RULES.REQUIRED_PLAYERS;
   const slotsRemaining = Math.max(0, CORE_RULES.REQUIRED_PLAYERS - totalPlayers);
@@ -195,6 +197,7 @@ export const MatchInspectScreen: React.FC<MatchInspectScreenProps> = ({
             <ThreeTugOfWarArena
               bullsCount={bullsCount}
               bearsCount={bearsCount}
+              bias={pull?.bias}
               marketTicker={market}
               selectedSide={selectedSide}
             />
@@ -202,6 +205,8 @@ export const MatchInspectScreen: React.FC<MatchInspectScreenProps> = ({
             <TugOfWarRope
               bullsCount={bullsCount}
               bearsCount={bearsCount}
+              bias={pull?.bias}
+              biasLabel={pull?.label}
               totalPlayers={totalPlayers}
               highlightSide={selectedSide}
               compact
@@ -211,6 +216,8 @@ export const MatchInspectScreen: React.FC<MatchInspectScreenProps> = ({
           <TugOfWarRope
             bullsCount={bullsCount}
             bearsCount={bearsCount}
+            bias={pull?.bias}
+            biasLabel={pull?.label}
             totalPlayers={totalPlayers}
             highlightSide={selectedSide}
           />
@@ -412,7 +419,7 @@ export const MatchInspectScreen: React.FC<MatchInspectScreenProps> = ({
             </div>
             <div>
               <span className="text-zinc-500">Platform Rake (r):</span>
-              <div className="font-mono font-bold text-white text-sm">10% (0.10)</div>
+              <div className="font-mono font-bold text-white text-sm">20% (0.20)</div>
             </div>
             <div>
               <span className="text-zinc-500">Current Bulls (B):</span>
@@ -451,11 +458,11 @@ export const MatchInspectScreen: React.FC<MatchInspectScreenProps> = ({
                     <strong className="text-white font-mono">${payouts.bullsWin.losingPool.toFixed(2)}</strong>
                   </div>
                   <div className="flex justify-between text-zinc-400">
-                    <span>Platform Rake (10%):</span>
+                    <span>Platform Rake (20%):</span>
                     <strong className="text-amber-400 font-mono">-${payouts.bullsWin.platformRake.toFixed(2)}</strong>
                   </div>
                   <div className="flex justify-between text-zinc-400">
-                    <span>Redistributed Pool (90%):</span>
+                    <span>Redistributed Pool (80%):</span>
                     <strong className="text-emerald-400 font-mono">${payouts.bullsWin.redistributedPool.toFixed(2)}</strong>
                   </div>
                   <div className="flex justify-between text-zinc-400">
@@ -515,11 +522,11 @@ export const MatchInspectScreen: React.FC<MatchInspectScreenProps> = ({
                     <strong className="text-white font-mono">${payouts.bearsWin.losingPool.toFixed(2)}</strong>
                   </div>
                   <div className="flex justify-between text-zinc-400">
-                    <span>Platform Rake (10%):</span>
+                    <span>Platform Rake (20%):</span>
                     <strong className="text-amber-400 font-mono">-${payouts.bearsWin.platformRake.toFixed(2)}</strong>
                   </div>
                   <div className="flex justify-between text-zinc-400">
-                    <span>Redistributed Pool (90%):</span>
+                    <span>Redistributed Pool (80%):</span>
                     <strong className="text-rose-400 font-mono">${payouts.bearsWin.redistributedPool.toFixed(2)}</strong>
                   </div>
                   <div className="flex justify-between text-zinc-400">

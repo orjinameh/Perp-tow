@@ -67,7 +67,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             Safeguards
           </button>
           <span className="text-zinc-600">·</span>
-          <span className="text-xs text-zinc-500 tabular-nums">{MATCH_SIZE} Players · $10 Entry · 10% Rake</span>
+          <span className="text-xs text-zinc-500 tabular-nums">{MATCH_SIZE} Players · $10 Entry · 20% Rake</span>
         </nav>
 
         {/* Zone 3: 1 primary action & controls */}

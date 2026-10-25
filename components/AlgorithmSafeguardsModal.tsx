@@ -36,14 +36,14 @@ export const AlgorithmSafeguardsModal: React.FC<AlgorithmSafeguardsModalProps> =
     entryFee: 10,
     winnerCount: sandboxBulls,
     loserCount: sandboxBears,
-    rake: 0.10,
+    rake: 0.20,
   });
 
   const sandboxBearsWin = calculatePayout({
     entryFee: 10,
     winnerCount: sandboxBears,
     loserCount: sandboxBulls,
-    rake: 0.10,
+    rake: 0.20,
   });
 
   if (!isOpen) return null;
@@ -166,7 +166,7 @@ export const AlgorithmSafeguardsModal: React.FC<AlgorithmSafeguardsModalProps> =
                 <div className="p-3.5 rounded-xl border border-zinc-800 bg-zinc-950/40">
                   <span className="font-bold text-white">Step 6 — Calculate Payout When Full (20 Players)</span>
                   <p className="text-zinc-400 mt-1">
-                    Takes entry fee $e = $10$, rake rate $r = 10\%$, winners $W$, losers $L$. Payout per winner is <code className="text-emerald-400 font-mono">P = e + (1 - r)eL / W</code>.
+                    Takes entry fee $e = $10$, rake rate $r = 20\%$, winners $W$, losers $L$. Payout per winner is <code className="text-emerald-400 font-mono">P = e + (1 - r)eL / W</code>.
                   </p>
                 </div>
                 <div className="p-3.5 rounded-xl border border-zinc-800 bg-zinc-950/40">
@@ -195,7 +195,7 @@ export const AlgorithmSafeguardsModal: React.FC<AlgorithmSafeguardsModalProps> =
                     <code>Losing Pool = e × L</code>
                   </div>
                   <div className="bg-zinc-950/70 p-2.5 rounded-lg border border-zinc-800">
-                    <span className="text-zinc-500 block text-[10px]">Platform Rake (10%)</span>
+                    <span className="text-zinc-500 block text-[10px]">Platform Rake (20%)</span>
                     <code>Rake = r × e × L</code>
                   </div>
                   <div className="bg-zinc-950/70 p-2.5 rounded-lg border border-zinc-800">
@@ -238,7 +238,7 @@ export const AlgorithmSafeguardsModal: React.FC<AlgorithmSafeguardsModalProps> =
                     <div className="font-bold text-emerald-400">If Bulls Win ({sandboxBulls} winners):</div>
                     <div className="mt-1 space-y-0.5 text-[11px]">
                       <div>Losing Pool: <span className="font-mono">${sandboxBullsWin?.losingPool}</span></div>
-                      <div>Rake (10%): <span className="font-mono">-${sandboxBullsWin?.platformRake.toFixed(2)}</span></div>
+                      <div>Rake (20%): <span className="font-mono">-${sandboxBullsWin?.platformRake.toFixed(2)}</span></div>
                       <div className="font-bold text-white pt-1">
                         Payout: <span className="text-emerald-400 font-mono">${sandboxBullsWin?.payoutPerWinner.toFixed(2)}</span>
                       </div>
@@ -252,7 +252,7 @@ export const AlgorithmSafeguardsModal: React.FC<AlgorithmSafeguardsModalProps> =
                     <div className="font-bold text-rose-400">If Bears Win ({sandboxBears} winners):</div>
                     <div className="mt-1 space-y-0.5 text-[11px]">
                       <div>Losing Pool: <span className="font-mono">${sandboxBearsWin?.losingPool}</span></div>
-                      <div>Rake (10%): <span className="font-mono">-${sandboxBearsWin?.platformRake.toFixed(2)}</span></div>
+                      <div>Rake (20%): <span className="font-mono">-${sandboxBearsWin?.platformRake.toFixed(2)}</span></div>
                       <div className="font-bold text-white pt-1">
                         Payout: <span className="text-rose-400 font-mono">${sandboxBearsWin?.payoutPerWinner.toFixed(2)}</span>
                       </div>

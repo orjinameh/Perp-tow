@@ -5,7 +5,7 @@ import { MATCH_SIZE } from './gameTag';
 export const CORE_RULES = {
   REQUIRED_PLAYERS: MATCH_SIZE,
   ENTRY_FEE: 10, // $10 per player
-  RAKE_RATE: 0.10, // 10% of the losing team's pool
+  RAKE_RATE: 0.20, // 20% of the losing team's pool
 };
 
 /**
@@ -16,7 +16,7 @@ export const CORE_RULES = {
  * @param entryFee e
  * @param winnerCount W
  * @param loserCount L
- * @param rake r (default 0.10)
+ * @param rake r (default 0.20)
  */
 export function calculatePayout({
   entryFee = CORE_RULES.ENTRY_FEE,

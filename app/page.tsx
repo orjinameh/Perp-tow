@@ -243,7 +243,7 @@ export default function TugOfWarApp() {
           <div className="flex items-center gap-4 text-[11px] text-zinc-400">
             <span>$10 Fixed Stake</span>
             <span>·</span>
-            <span>10% Loser Pool Rake</span>
+            <span>20% Loser Pool Rake</span>
             <span>·</span>
             <button
               onClick={() => setIsSpecsOpen(true)}

@@ -30,7 +30,7 @@ export const GlobalLobby: React.FC<GlobalLobbyProps> = ({
   onOpenSpecs,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
-  const [sortField, setSortField] = useState<'volume' | 'change' | 'queue'>('volume');
+  const [sortField, setSortField] = useState<'volume' | 'change'>('volume');
 
   const filteredMarkets = markets.filter(
     (m) =>
@@ -38,7 +38,6 @@ export const GlobalLobby: React.FC<GlobalLobbyProps> = ({
       m.name.toLowerCase().includes(searchQuery.toLowerCase())
   ).sort((a, b) => {
     if (sortField === 'change') return Math.abs(b.priceChange24h) - Math.abs(a.priceChange24h);
-    if (sortField === 'queue') return (b.waitingBulls + b.waitingBears) - (a.waitingBulls + a.waitingBears);
     return 0;
   });
 
@@ -69,13 +68,13 @@ export const GlobalLobby: React.FC<GlobalLobbyProps> = ({
             </h1>
             <p className="mt-3 text-sm sm:text-base text-zinc-300 max-w-2xl leading-relaxed">
               Predict market direction on any of the {markets.length} live dreamDEX perp markets. Each match starts when {MATCH_SIZE} players have joined; entries are real dreamDEX market orders.
-              Winners claim their original entry plus 90% of the losing team&apos;s pool.
+              Winners claim their original entry plus 80% of the losing team&apos;s pool.
             </p>
 
             {/* Quick Rules Metadata Bar */}
             <div className="mt-6 flex flex-wrap items-center gap-3 sm:gap-6 text-xs text-zinc-400 border-t border-zinc-800/80 pt-4">
               <div className="flex items-center gap-1.5 text-zinc-300">
-                <span className="font-semibold text-white">20 Players</span>
+                <span className="font-semibold text-white">{MATCH_SIZE} Players</span>
                 <span>per match</span>
               </div>
               <span className="text-zinc-600">·</span>
@@ -85,7 +84,7 @@ export const GlobalLobby: React.FC<GlobalLobbyProps> = ({
               </div>
               <span className="text-zinc-600">·</span>
               <div className="flex items-center gap-1.5 text-zinc-300">
-                <span className="font-semibold text-white">10% Platform Rake</span>
+                <span className="font-semibold text-white">20% Platform Rake</span>
                 <span>(losing pool only)</span>
               </div>
               <span className="text-zinc-600">·</span>
@@ -103,10 +102,10 @@ export const GlobalLobby: React.FC<GlobalLobbyProps> = ({
         <Info className="h-4 w-4 text-emerald-400 shrink-0 mt-0.5" />
         <div className="space-y-1">
           <p className="font-medium text-zinc-200">
-            Step 1: Global Market Queues vs Individual Matches
+            Step 1: Markets vs Individual Matches
           </p>
           <p className="leading-relaxed">
-            The waiting counts below indicate the <strong className="text-zinc-300">global matchmaking pool</strong> searching for matches in each market.
+            Every market below is a live dreamDEX perp market.
             Matches are isolated by asset—BTC players cannot face ETH players. Select a market to view its interactive price chart, pick your position (Bulls or Bears), and inspect active {MATCH_SIZE}-player lobbies.
           </p>
         </div>
@@ -142,17 +141,6 @@ export const GlobalLobby: React.FC<GlobalLobbyProps> = ({
             <button
               onClick={() => {
                 soundFx.playClick();
-                setSortField('queue');
-              }}
-              className={`px-2.5 py-1 rounded transition-colors whitespace-nowrap ${
-                sortField === 'queue' ? 'bg-zinc-800 text-white font-medium' : 'text-zinc-400 hover:text-zinc-200'
-              }`}
-            >
-              Queue Activity
-            </button>
-            <button
-              onClick={() => {
-                soundFx.playClick();
                 setSortField('change');
               }}
               className={`px-2.5 py-1 rounded transition-colors whitespace-nowrap ${
@@ -169,8 +157,6 @@ export const GlobalLobby: React.FC<GlobalLobbyProps> = ({
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
         {filteredMarkets.map((market) => {
           const isPositive = market.priceChange24h >= 0;
-          const totalQueue = market.waitingBulls + market.waitingBears;
-          const bullRatio = totalQueue > 0 ? Math.round((market.waitingBulls / totalQueue) * 100) : 50;
 
           return (
             <div
@@ -212,40 +198,6 @@ export const GlobalLobby: React.FC<GlobalLobbyProps> = ({
                   </div>
                 </div>
 
-                {/* Queue Momentum Meter */}
-                <div className="mt-5 rounded-xl border border-zinc-800/80 bg-zinc-950/50 p-3">
-                  <div className="flex items-center justify-between text-xs mb-1.5">
-                    <div className="flex items-center gap-1 text-emerald-400 font-medium">
-                      <span>{market.waitingBulls} Bulls</span>
-                      <span className="text-zinc-500 font-normal">({bullRatio}%)</span>
-                    </div>
-                    {totalQueue > 0 && market.waitingBulls === market.waitingBears && (
-                      <span className="text-[10px] text-emerald-400/90 font-mono font-semibold bg-emerald-500/10 px-1.5 py-0.5 rounded border border-emerald-500/20">
-                        Matched 1:1
-                      </span>
-                    )}
-                    <div className="flex items-center gap-1 text-rose-400 font-medium">
-                      <span className="text-zinc-500 font-normal">({100 - bullRatio}%)</span>
-                      <span>{market.waitingBears} Bears</span>
-                    </div>
-                  </div>
-
-                  {/* Visual Split Bar */}
-                  <div className="h-2 w-full rounded-full bg-zinc-800 overflow-hidden flex">
-                    <div
-                      className="h-full bg-emerald-500"
-                      style={{ width: `${bullRatio}%` }}
-                    />
-                    <div
-                      className="h-full bg-rose-500"
-                      style={{ width: `${100 - bullRatio}%` }}
-                    />
-                  </div>
-
-                  <div className="flex items-center justify-between text-[11px] text-zinc-500 mt-2">
-                    <span>Global Waiting Queue</span>
-                    <span className="font-mono tabular-nums text-zinc-400">{totalQueue} players waiting</span>
-                  </div>
                 </div>
 
                 {/* Market Stats Metadata */}
@@ -290,7 +242,7 @@ export const GlobalLobby: React.FC<GlobalLobbyProps> = ({
         <div className="flex items-center gap-3">
           <ShieldAlert className="h-5 w-5 text-zinc-400 shrink-0" />
           <div className="text-xs text-zinc-400">
-            <span className="font-semibold text-zinc-200">Live data:</span> prices, 24h range, volume and open interest come from the dreamDEX Hideki testnet perps indexer. Queues and matches start empty and fill only when players enter.{failed.length > 0 ? ` Could not load: ${failed.join(', ')}.` : ''}
+            <span className="font-semibold text-zinc-200">Live data:</span> prices, 24h range, volume and open interest come from the dreamDEX Hideki testnet perps indexer. Matches are read from the on-chain seat registry and fill only when players enter.{failed.length > 0 ? ` Could not load: ${failed.join(', ')}.` : ''}
           </div>
         </div>
         <button

@@ -30,7 +30,7 @@ contract TugEscrow {
     uint32 public immutable size;        // players per match
     uint64 public immutable duration;    // seconds a match runs
     uint64 public immutable graceAfter;  // seconds after the end before refunds open
-    uint16 public immutable rakeBps;     // r, 1000 = 10%
+    uint16 public immutable rakeBps;     // r, 2000 = 20%
 
     // key: keccak256(market symbol, match number)
     mapping(bytes32 => Match) public matches;

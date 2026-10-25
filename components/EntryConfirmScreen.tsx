@@ -41,6 +41,9 @@ export const EntryConfirmScreen: React.FC<EntryConfirmScreenProps> = ({
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
 
+  // The last seat must not make the roster one-sided.
+  const sideBlocked = match.total === MATCH_SIZE - 1 && (selectedSide === 'bulls' ? match.bears === 0 : match.bulls === 0);
+
   const placeEntry = async () => {
     if (!wallet.key || !wallet.address) return;
     setBusy(true);
@@ -211,6 +214,7 @@ export const EntryConfirmScreen: React.FC<EntryConfirmScreenProps> = ({
             {match.total >= MATCH_SIZE && (
               <p className="text-amber-300">This match already has 20 players. Open a new match instead.</p>
             )}
+            {sideBlocked && <p className="text-amber-300">This match needs both teams, and only one seat is left. Pick the other side or join another match.</p>}
             {error && <p className="text-rose-300">Entry failed: {error}</p>}
           </div>
         </div>
@@ -228,7 +232,7 @@ export const EntryConfirmScreen: React.FC<EntryConfirmScreenProps> = ({
           </button>
 
           <button
-            disabled={busy || !wallet.address || match.total >= MATCH_SIZE}
+            disabled={busy || !wallet.address || match.total >= MATCH_SIZE || sideBlocked}
             onClick={placeEntry}
             className="w-full sm:w-auto disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-zinc-950 font-black text-sm py-3.5 px-8 shadow-xl shadow-emerald-500/30 transition-transform hover:scale-[1.02]"
           >

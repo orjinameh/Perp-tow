@@ -33,6 +33,7 @@ export async function enterRegistry(key: Hex, ticker: string, matchNumber: numbe
   } catch (e) {
     const err = e as { shortMessage?: string; message?: string };
     const text = err.shortMessage ?? err.message ?? String(e);
+    if (/other side/i.test(text)) throw new Error('This match needs both teams. Take the other side, or join a different match.');
     if (/full/i.test(text)) throw new Error('This match is already full. Open a new match.');
     if (/already in/i.test(text)) throw new Error('This wallet already has a seat in this match.');
     throw new Error(text.split('\n')[0]);

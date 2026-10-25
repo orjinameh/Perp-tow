@@ -33,10 +33,10 @@ const pub = createPublicClient({ chain: hidekiTestnet, transport: http('https://
 const hash = await wallet.deployContract({
   abi: c.abi,
   bytecode: `0x${c.evm.bytecode.object}`,
-  args: [USDSO, parseUnits('10', 18), size, BigInt(duration), 3600n, 1000],
+  args: [USDSO, parseUnits('10', 18), size, BigInt(duration), 3600n, 2000],
 });
 const rc = await pub.waitForTransactionReceipt({ hash });
-console.log(`size ${size}, ${duration}s, stake 10 USDso, rake 10%`);
+console.log(`size ${size}, ${duration}s, stake 10 USDso, rake 20%`);
 console.log(`Deployed: ${rc.contractAddress}`);
 console.log(`Tx: https://explorer.testnet.somnia.network/tokyo/tx/${hash}`);
 console.log(`Add to .env.local: NEXT_PUBLIC_ESCROW_ADDRESS=${rc.contractAddress}`);

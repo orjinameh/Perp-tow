@@ -259,32 +259,8 @@ export const MarketChartScreen: React.FC<MarketChartScreenProps> = ({
           )}
         </div>
 
-        {/* Global Queue Overview for this Asset */}
-        <div className="mt-5 grid grid-cols-1 sm:grid-cols-3 gap-4 border-t border-zinc-800/80 pt-4">
-          <div className="flex items-center gap-3 bg-zinc-950/40 p-3 rounded-xl border border-zinc-800/60">
-            <div className="relative h-9 w-9 rounded-full overflow-hidden border border-emerald-500/40 shrink-0">
-              <Image src="/images/bull_crest.jpg" alt="Bulls" fill className="object-cover" referrerPolicy="no-referrer" />
-            </div>
-            <div>
-              <div className="text-xs text-zinc-400">Waiting Bulls Queue</div>
-              <div className="text-base font-bold text-emerald-400 font-mono tabular-nums">
-                {market.waitingBulls} players
-              </div>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-3 bg-zinc-950/40 p-3 rounded-xl border border-zinc-800/60">
-            <div className="relative h-9 w-9 rounded-full overflow-hidden border border-rose-500/40 shrink-0">
-              <Image src="/images/bear_crest.jpg" alt="Bears" fill className="object-cover" referrerPolicy="no-referrer" />
-            </div>
-            <div>
-              <div className="text-xs text-zinc-400">Waiting Bears Queue</div>
-              <div className="text-base font-bold text-rose-400 font-mono tabular-nums">
-                {market.waitingBears} players
-              </div>
-            </div>
-          </div>
-
+        {/* Match rules for this asset */}
+        <div className="mt-5 grid grid-cols-1 gap-4 border-t border-zinc-800/80 pt-4">
           <div className="flex items-center justify-between bg-zinc-950/40 p-3 rounded-xl border border-zinc-800/60">
             <div>
               <div className="text-xs text-zinc-400">Match Buy-In</div>
@@ -355,7 +331,7 @@ export const MarketChartScreen: React.FC<MarketChartScreenProps> = ({
               </div>
               <div className="flex justify-between text-zinc-400">
                 <span>Payout Basis:</span>
-                <span className="text-zinc-300">Share 90% of Bears&apos; $10 buy-ins</span>
+                <span className="text-zinc-300">Share 80% of Bears&apos; $10 buy-ins</span>
               </div>
             </div>
 
@@ -411,7 +387,7 @@ export const MarketChartScreen: React.FC<MarketChartScreenProps> = ({
               </div>
               <div className="flex justify-between text-zinc-400">
                 <span>Payout Basis:</span>
-                <span className="text-zinc-300">Share 90% of Bulls&apos; $10 buy-ins</span>
+                <span className="text-zinc-300">Share 80% of Bulls&apos; $10 buy-ins</span>
               </div>
             </div>
 

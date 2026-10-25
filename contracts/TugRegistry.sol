@@ -15,6 +15,7 @@ contract TugRegistry {
     mapping(bytes32 => Seat[]) private _seats;          // key: keccak256(abi.encode(market, matchNumber))
     mapping(bytes32 => uint64) private _startedAt;      // block time when the last seat was taken
     mapping(bytes32 => mapping(address => bool)) public inMatch;
+    mapping(bytes32 => uint32) private _bulls;
     mapping(bytes32 => uint256) private _latest;        // key: keccak256(market): highest match number used
 
     event Entered(bytes32 indexed marketHash, uint256 indexed matchNumber, address indexed player, uint8 side, uint32 seat);
@@ -32,7 +33,10 @@ contract TugRegistry {
         require(_seats[key].length < size, "match is full");
         inMatch[key][msg.sender] = true;
         _seats[key].push(Seat(msg.sender, side));
+        if (side == 1) _bulls[key]++;
         uint32 seat = uint32(_seats[key].length);
+        // A match needs both sides: the last seat cannot make the roster one-sided.
+        if (seat == size) require(_bulls[key] > 0 && _bulls[key] < size, "last seat must take the other side");
         if (seat == size) _startedAt[key] = uint64(block.timestamp);
         bytes32 mh = keccak256(bytes(market));
         if (matchNumber > _latest[mh]) _latest[mh] = matchNumber;
