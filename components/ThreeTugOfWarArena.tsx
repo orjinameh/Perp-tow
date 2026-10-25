@@ -22,6 +22,7 @@ interface ThreeTugOfWarArenaProps {
   marketPrice?: number;
   selectedSide?: PositionSide | null;
   interactive?: boolean;
+  bias?: number; // -1..1: when given (live matches) the pull follows the price move, not head count
   onAdjustBulls?: (count: number) => void;
   onAdjustBears?: (count: number) => void;
 }
@@ -29,6 +30,7 @@ interface ThreeTugOfWarArenaProps {
 export const ThreeTugOfWarArena: React.FC<ThreeTugOfWarArenaProps> = ({
   bullsCount,
   bearsCount,
+  bias: biasProp,
   marketTicker,
   marketPrice,
   selectedSide = null,
@@ -58,9 +60,9 @@ export const ThreeTugOfWarArena: React.FC<ThreeTugOfWarArenaProps> = ({
     const total = Math.max(1, bullsCount + bearsCount);
     // Normalized bias between -1 (Bears total) and +1 (Bulls total)
     // Shift in 3D world units: negative X is Left (Bulls), positive X is Right (Bears)
-    const bias = (bullsCount - bearsCount) / total;
-    stateRef.current.targetShift = -bias * 3.8; // Bull advantage pulls toward -X (left)
-  }, [bullsCount, bearsCount]);
+    const b = biasProp ?? (bullsCount - bearsCount) / total;
+    stateRef.current.targetShift = -b * 3.8; // Bull advantage pulls toward -X (left)
+  }, [bullsCount, bearsCount, biasProp]);
 
   useEffect(() => {
     stateRef.current.isLivePulling = isLivePulling;
@@ -223,380 +225,188 @@ export const ThreeTugOfWarArena: React.FC<ThreeTugOfWarArenaProps> = ({
     bearRing.position.set(8.5, 0.025, 0);
     arenaGroup.add(bearRing);
 
-    // 5. Procedural 3D Character Generators (Realistic 12-Part Sculpted Athletic Warriors)
-    // Creates a realistic muscular, armored Bull Warrior in low athletic pulling stance
-    function createBullPuller(index: number) {
-      const charGroup = new THREE.Group();
+    // 5. Procedural 3D animal characters: a muscular bull and a bear, both upright and braced to pull.
+    // Both are built facing +X (towards the rope). The bear's body is turned half a circle afterwards.
+    const V = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z);
+    const cast = (m: THREE.Mesh) => {
+      m.castShadow = !isSoftwareGl;
+      return m;
+    };
 
-      // Palette
-      const armorEmerald = new THREE.MeshStandardMaterial({
-        color: 0x059669,
-        metalness: 0.6,
-        roughness: 0.25,
-      });
-      const darkBodyMat = new THREE.MeshStandardMaterial({
-        color: 0x022c22,
-        roughness: 0.7,
-        metalness: 0.2,
-      });
-      const goldTrimMat = new THREE.MeshStandardMaterial({
-        color: 0xfde047,
-        metalness: 0.9,
-        roughness: 0.15,
-        emissive: 0x854d0e,
-        emissiveIntensity: 0.3,
-      });
-      const glowEyeMat = new THREE.MeshBasicMaterial({ color: 0x6ee7b7 });
-
-      // 1. Pelvis & Armored Belt
-      const pelvisGeo = new THREE.CylinderGeometry(0.24, 0.2, 0.25, 8);
-      const pelvis = new THREE.Mesh(pelvisGeo, armorEmerald);
-      pelvis.position.y = 0.58;
-      pelvis.castShadow = !isSoftwareGl;
-      charGroup.add(pelvis);
-
-      // Gold Belt Buckle
-      const buckleGeo = new THREE.BoxGeometry(0.12, 0.12, 0.08);
-      const buckle = new THREE.Mesh(buckleGeo, goldTrimMat);
-      buckle.position.set(0.18, 0.58, 0);
-      charGroup.add(buckle);
-
-      // 2. Muscular Abdomen & Tapered Ribcage
-      const absGeo = new THREE.CylinderGeometry(0.3, 0.22, 0.35, 8);
-      const abs = new THREE.Mesh(absGeo, darkBodyMat);
-      abs.position.set(0.04, 0.82, 0);
-      abs.castShadow = !isSoftwareGl;
-      charGroup.add(abs);
-
-      // 3. Heavy Chest Plate (Pectorals)
-      const chestGeo = new THREE.BoxGeometry(0.55, 0.42, 0.48);
-      const chest = new THREE.Mesh(chestGeo, armorEmerald);
-      chest.position.set(0.08, 1.08, 0);
-      chest.rotation.z = -0.15;
-      chest.castShadow = !isSoftwareGl;
-      charGroup.add(chest);
-
-      // 4. Heavy Shoulder Pauldrons (Left & Right)
-      const pauldronGeo = new THREE.SphereGeometry(0.18, 8, 8, 0, Math.PI * 2, 0, Math.PI / 1.6);
-      const pauldronL = new THREE.Mesh(pauldronGeo, goldTrimMat);
-      pauldronL.position.set(0.1, 1.25, 0.32);
-      pauldronL.rotation.x = 0.4;
-      charGroup.add(pauldronL);
-
-      const pauldronR = new THREE.Mesh(pauldronGeo, goldTrimMat);
-      pauldronR.position.set(0.1, 1.25, -0.32);
-      pauldronR.rotation.x = -0.4;
-      charGroup.add(pauldronR);
-
-      // 5. Sculpted Bull Head & Horns
-      const headGroup = new THREE.Group();
-      headGroup.position.set(0.32, 1.35, 0);
-
-      // Cranium
-      const craniumGeo = new THREE.BoxGeometry(0.32, 0.34, 0.34);
-      const cranium = new THREE.Mesh(craniumGeo, armorEmerald);
-      headGroup.add(cranium);
-
-      // Tapered Muzzle / Snout
-      const muzzleGeo = new THREE.BoxGeometry(0.25, 0.22, 0.24);
-      const muzzle = new THREE.Mesh(muzzleGeo, darkBodyMat);
-      muzzle.position.set(0.24, -0.06, 0);
-      headGroup.add(muzzle);
-
-      // Glowing Eyes
-      const eyeGeo = new THREE.BoxGeometry(0.06, 0.04, 0.08);
-      const eyeL = new THREE.Mesh(eyeGeo, glowEyeMat);
-      eyeL.position.set(0.16, 0.06, 0.16);
-      headGroup.add(eyeL);
-
-      const eyeR = new THREE.Mesh(eyeGeo, glowEyeMat);
-      eyeR.position.set(0.16, 0.06, -0.16);
-      headGroup.add(eyeR);
-
-      // Sweeping Curved Horns (multi-segmented for realism)
-      const hornCurveL = [
-        new THREE.Vector3(0.05, 0.15, 0.16),
-        new THREE.Vector3(0.12, 0.32, 0.36),
-        new THREE.Vector3(0.24, 0.44, 0.32),
-      ];
-      const hornCurveR = [
-        new THREE.Vector3(0.05, 0.15, -0.16),
-        new THREE.Vector3(0.12, 0.32, -0.36),
-        new THREE.Vector3(0.24, 0.44, -0.32),
-      ];
-
-      const hornGeoL = new THREE.TubeGeometry(new THREE.CatmullRomCurve3(hornCurveL), 12, 0.045, 6, false);
-      const hornL = new THREE.Mesh(hornGeoL, goldTrimMat);
-      headGroup.add(hornL);
-
-      const hornGeoR = new THREE.TubeGeometry(new THREE.CatmullRomCurve3(hornCurveR), 12, 0.045, 6, false);
-      const hornR = new THREE.Mesh(hornGeoR, goldTrimMat);
-      headGroup.add(hornR);
-
-      headGroup.castShadow = !isSoftwareGl;
-      charGroup.add(headGroup);
-
-      // 6. Dual Articulated Arms gripping the rope
-      // Forearm 1 (Forward Grip)
-      const armGeo1 = new THREE.CylinderGeometry(0.07, 0.08, 0.48);
-      const armL = new THREE.Mesh(armGeo1, armorEmerald);
-      armL.position.set(0.38, 1.05, 0.14);
-      armL.rotation.z = -Math.PI / 3.2;
-      armL.rotation.y = 0.2;
-      charGroup.add(armL);
-
-      // Gauntlet Hand Clamped on Rope
-      const handGeo = new THREE.SphereGeometry(0.08, 6, 6);
-      const handL = new THREE.Mesh(handGeo, goldTrimMat);
-      handL.position.set(0.55, 0.94, 0.06);
-      charGroup.add(handL);
-
-      const armR = new THREE.Mesh(armGeo1, armorEmerald);
-      armR.position.set(0.32, 1.02, -0.14);
-      armR.rotation.z = -Math.PI / 3.5;
-      armR.rotation.y = -0.2;
-      charGroup.add(armR);
-
-      const handR = new THREE.Mesh(handGeo, goldTrimMat);
-      handR.position.set(0.48, 0.92, -0.06);
-      charGroup.add(handR);
-
-      // 7. Braced Athletic Legs & Cleated Boots
-      // Lead Leg (Forward Bent)
-      const thighGeo = new THREE.CylinderGeometry(0.1, 0.12, 0.4);
-      const thighLead = new THREE.Mesh(thighGeo, darkBodyMat);
-      thighLead.position.set(0.18, 0.4, 0.16);
-      thighLead.rotation.z = -0.45;
-      charGroup.add(thighLead);
-
-      const calfGeo = new THREE.CylinderGeometry(0.09, 0.11, 0.4);
-      const calfLead = new THREE.Mesh(calfGeo, armorEmerald);
-      calfLead.position.set(0.28, 0.18, 0.16);
-      calfLead.rotation.z = 0.3;
-      charGroup.add(calfLead);
-
-      // Boot
-      const bootGeo = new THREE.BoxGeometry(0.24, 0.1, 0.14);
-      const bootLead = new THREE.Mesh(bootGeo, goldTrimMat);
-      bootLead.position.set(0.32, 0.05, 0.16);
-      charGroup.add(bootLead);
-
-      // Anchor Leg (Dug Deep Backwards for Leverage)
-      const thighBack = new THREE.Mesh(thighGeo, darkBodyMat);
-      thighBack.position.set(-0.16, 0.38, -0.16);
-      thighBack.rotation.z = 0.4;
-      charGroup.add(thighBack);
-
-      const calfBack = new THREE.Mesh(calfGeo, armorEmerald);
-      calfBack.position.set(-0.32, 0.16, -0.16);
-      calfBack.rotation.z = -0.2;
-      charGroup.add(calfBack);
-
-      const bootBack = new THREE.Mesh(bootGeo, goldTrimMat);
-      bootBack.position.set(-0.36, 0.05, -0.16);
-      charGroup.add(bootBack);
-
-      // Athletic pulling stance: Leaning back towards left (-X)
-      // Positioned in side-by-side pairs along the rope:
-      const row = Math.floor(index / 2);
-      const isSideA = index % 2 === 0;
-      const zOffset = isSideA ? 0.38 : -0.38;
-      const xPos = -2.2 - row * 0.88 - (isSideA ? 0 : 0.14);
-      charGroup.rotation.z = 0.36;
-      charGroup.rotation.y = isSideA ? -0.12 : 0.12;
-      charGroup.position.set(xPos, 0, zOffset);
-
-      return charGroup;
+    // A tapered cylinder between two points (arms, legs, tails).
+    function limb(a: THREE.Vector3, b: THREE.Vector3, rA: number, rB: number, mat: THREE.Material) {
+      const dir = new THREE.Vector3().subVectors(b, a);
+      const m = new THREE.Mesh(new THREE.CylinderGeometry(rB, rA, dir.length(), 10), mat);
+      m.position.copy(a).addScaledVector(dir, 0.5);
+      m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.clone().normalize());
+      return cast(m);
     }
 
-    // Creates a realistic muscular, armored Bear Warrior in low athletic pulling stance
-    function createBearPuller(index: number) {
-      const charGroup = new THREE.Group();
+    // A squashed sphere: the building block for bodies, heads, paws.
+    function blob(r: number, sx: number, sy: number, sz: number, mat: THREE.Material, x: number, y: number, z: number) {
+      const m = new THREE.Mesh(new THREE.SphereGeometry(r, 16, 12), mat);
+      m.scale.set(sx, sy, sz);
+      m.position.set(x, y, z);
+      return cast(m);
+    }
 
-      // Palette
-      const armorCrimson = new THREE.MeshStandardMaterial({
-        color: 0xe11d48,
-        metalness: 0.6,
-        roughness: 0.25,
-      });
-      const darkFurMat = new THREE.MeshStandardMaterial({
-        color: 0x4c0519,
-        roughness: 0.75,
-        metalness: 0.15,
-      });
-      const rubyTrimMat = new THREE.MeshStandardMaterial({
-        color: 0xfb7185,
-        metalness: 0.85,
-        roughness: 0.15,
-        emissive: 0x9f1239,
-        emissiveIntensity: 0.3,
-      });
-      const glowRubyEyeMat = new THREE.MeshBasicMaterial({ color: 0xff6b81 });
+    const matte = (color: number) => new THREE.MeshStandardMaterial({ color, roughness: 0.85, metalness: 0.05 });
 
-      // 1. Heavy Pelvis & Battle Belt
-      const pelvisGeo = new THREE.CylinderGeometry(0.26, 0.22, 0.28, 8);
-      const pelvis = new THREE.Mesh(pelvisGeo, armorCrimson);
-      pelvis.position.y = 0.6;
-      pelvis.castShadow = !isSoftwareGl;
-      charGroup.add(pelvis);
-
-      // Ruby Belt Buckle
-      const buckleGeo = new THREE.BoxGeometry(0.14, 0.14, 0.09);
-      const buckle = new THREE.Mesh(buckleGeo, rubyTrimMat);
-      buckle.position.set(-0.2, 0.6, 0);
-      charGroup.add(buckle);
-
-      // 2. Broad Grizzly Barrel Torso with Shoulder Hump
-      const torsoGeo = new THREE.CylinderGeometry(0.35, 0.25, 0.42, 8);
-      const torso = new THREE.Mesh(torsoGeo, darkFurMat);
-      torso.position.set(-0.06, 0.86, 0);
-      torso.castShadow = !isSoftwareGl;
-      charGroup.add(torso);
-
-      // Grizzly Upper Back Hump
-      const humpGeo = new THREE.SphereGeometry(0.24, 8, 8);
-      const hump = new THREE.Mesh(humpGeo, darkFurMat);
-      hump.position.set(0.12, 1.18, 0);
-      charGroup.add(hump);
-
-      // Heavy Chest Plate & Back Armor
-      const chestGeo = new THREE.BoxGeometry(0.6, 0.46, 0.52);
-      const chest = new THREE.Mesh(chestGeo, armorCrimson);
-      chest.position.set(-0.1, 1.12, 0);
-      chest.rotation.z = 0.15;
-      chest.castShadow = !isSoftwareGl;
-      charGroup.add(chest);
-
-      // 3. Spiked Shoulder Guards (Pauldrons)
-      const pauldronGeo = new THREE.CylinderGeometry(0.12, 0.2, 0.18, 6);
-      const pauldronL = new THREE.Mesh(pauldronGeo, rubyTrimMat);
-      pauldronL.position.set(-0.12, 1.28, 0.34);
-      pauldronL.rotation.x = 0.45;
-      charGroup.add(pauldronL);
-
-      const pauldronR = new THREE.Mesh(pauldronGeo, rubyTrimMat);
-      pauldronR.position.set(-0.12, 1.28, -0.34);
-      pauldronR.rotation.x = -0.45;
-      charGroup.add(pauldronR);
-
-      // 4. Fierce Sculpted Bear Head & Jaws
-      const headGroup = new THREE.Group();
-      headGroup.position.set(-0.36, 1.38, 0);
-
-      // Heavy Cranium
-      const craniumGeo = new THREE.BoxGeometry(0.36, 0.36, 0.38);
-      const cranium = new THREE.Mesh(craniumGeo, armorCrimson);
-      headGroup.add(cranium);
-
-      // Broad Snout & Open Jaw
-      const snoutGeo = new THREE.BoxGeometry(0.28, 0.22, 0.26);
-      const snout = new THREE.Mesh(snoutGeo, darkFurMat);
-      snout.position.set(-0.25, -0.06, 0);
-      headGroup.add(snout);
-
-      // Sharp Canine Fangs
-      const fangMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
-      const fangGeo = new THREE.ConeGeometry(0.03, 0.1, 4);
-      const fangL = new THREE.Mesh(fangGeo, fangMat);
-      fangL.position.set(-0.3, -0.15, 0.08);
-      fangL.rotation.x = Math.PI;
-      headGroup.add(fangL);
-
-      const fangR = new THREE.Mesh(fangGeo, fangMat);
-      fangR.position.set(-0.3, -0.15, -0.08);
-      fangR.rotation.x = Math.PI;
-      headGroup.add(fangR);
-
-      // Rounded Bear Ears
-      const earGeo = new THREE.SphereGeometry(0.09, 8, 8);
-      const earL = new THREE.Mesh(earGeo, rubyTrimMat);
-      earL.position.set(0.06, 0.22, 0.2);
-      headGroup.add(earL);
-
-      const earR = new THREE.Mesh(earGeo, rubyTrimMat);
-      earR.position.set(0.06, 0.22, -0.2);
-      headGroup.add(earR);
-
-      // Glowing Ruby Eyes
-      const eyeGeo = new THREE.BoxGeometry(0.06, 0.04, 0.08);
-      const eyeL = new THREE.Mesh(eyeGeo, glowRubyEyeMat);
-      eyeL.position.set(-0.18, 0.08, 0.18);
-      headGroup.add(eyeL);
-
-      const eyeR = new THREE.Mesh(eyeGeo, glowRubyEyeMat);
-      eyeR.position.set(-0.18, 0.08, -0.18);
-      headGroup.add(eyeR);
-
-      charGroup.add(headGroup);
-
-      // 5. Heavy Armored Arms & Paws Gripping the Rope
-      const armGeo = new THREE.CylinderGeometry(0.08, 0.09, 0.5);
-      const armL = new THREE.Mesh(armGeo, armorCrimson);
-      armL.position.set(-0.4, 1.05, 0.14);
-      armL.rotation.z = Math.PI / 3.2;
-      armL.rotation.y = -0.2;
-      charGroup.add(armL);
-
-      const pawGeo = new THREE.SphereGeometry(0.09, 6, 6);
-      const pawL = new THREE.Mesh(pawGeo, rubyTrimMat);
-      pawL.position.set(-0.58, 0.94, 0.06);
-      charGroup.add(pawL);
-
-      const armR = new THREE.Mesh(armGeo, armorCrimson);
-      armR.position.set(-0.34, 1.02, -0.14);
-      armR.rotation.z = Math.PI / 3.5;
-      armR.rotation.y = 0.2;
-      charGroup.add(armR);
-
-      const pawR = new THREE.Mesh(pawGeo, rubyTrimMat);
-      pawR.position.set(-0.5, 0.92, -0.06);
-      charGroup.add(pawR);
-
-      // 6. Heavy Braced Bear Legs & Spiked Boots
-      // Lead Leg
-      const thighGeo = new THREE.CylinderGeometry(0.12, 0.14, 0.42);
-      const thighLead = new THREE.Mesh(thighGeo, darkFurMat);
-      thighLead.position.set(-0.2, 0.4, 0.18);
-      thighLead.rotation.z = 0.45;
-      charGroup.add(thighLead);
-
-      const calfGeo = new THREE.CylinderGeometry(0.1, 0.12, 0.42);
-      const calfLead = new THREE.Mesh(calfGeo, armorCrimson);
-      calfLead.position.set(-0.3, 0.18, 0.18);
-      calfLead.rotation.z = -0.3;
-      charGroup.add(calfLead);
-
-      const bootGeo = new THREE.BoxGeometry(0.26, 0.11, 0.16);
-      const bootLead = new THREE.Mesh(bootGeo, rubyTrimMat);
-      bootLead.position.set(-0.34, 0.06, 0.18);
-      charGroup.add(bootLead);
-
-      // Anchor Leg Dug Deep Backwards
-      const thighBack = new THREE.Mesh(thighGeo, darkFurMat);
-      thighBack.position.set(0.18, 0.38, -0.18);
-      thighBack.rotation.z = -0.4;
-      charGroup.add(thighBack);
-
-      const calfBack = new THREE.Mesh(calfGeo, armorCrimson);
-      calfBack.position.set(0.34, 0.16, -0.18);
-      calfBack.rotation.z = 0.2;
-      charGroup.add(calfBack);
-
-      const bootBack = new THREE.Mesh(bootGeo, rubyTrimMat);
-      bootBack.position.set(0.38, 0.06, -0.18);
-      charGroup.add(bootBack);
-
-      // Athletic pulling stance: Leaning back towards right (+X)
-      // Positioned in side-by-side pairs along the rope:
+    // zReach: where, sideways, the rope sits relative to this character (the rope is at world z = 0).
+    function createBullPuller(index: number) {
       const row = Math.floor(index / 2);
       const isSideA = index % 2 === 0;
       const zOffset = isSideA ? 0.38 : -0.38;
-      const xPos = 2.2 + row * 0.88 + (isSideA ? 0 : 0.14);
-      charGroup.rotation.z = -0.36;
-      charGroup.rotation.y = isSideA ? 0.12 : -0.12;
-      charGroup.position.set(xPos, 0, zOffset);
+      const zReach = -zOffset;
 
-      return charGroup;
+      const g = new THREE.Group();
+      const hide = matte(0x3b2417);
+      const hideLight = matte(0x6b4423);
+      const horn = new THREE.MeshStandardMaterial({ color: 0xf3ead2, roughness: 0.35, metalness: 0.1 });
+      const hoof = matte(0x14110f);
+      const team = new THREE.MeshStandardMaterial({ color: 0x10b981, roughness: 0.5, metalness: 0.3 });
+      const gold = new THREE.MeshStandardMaterial({ color: 0xfacc15, roughness: 0.25, metalness: 0.9 });
+      const white = new THREE.MeshBasicMaterial({ color: 0xffffff });
+      const black = new THREE.MeshBasicMaterial({ color: 0x050505 });
+
+      // Heavy barrel chest, big shoulder hump, narrow hips
+      g.add(blob(0.5, 0.95, 0.85, 0.7, hide, 0.08, 1.0, 0));
+      g.add(blob(0.3, 1.1, 0.9, 0.95, hide, -0.02, 1.32, 0)); // hump
+      g.add(blob(0.36, 0.9, 0.85, 0.75, hideLight, -0.2, 0.7, 0)); // hips
+      const harness = new THREE.Mesh(new THREE.TorusGeometry(0.4, 0.045, 8, 24), team); // team-coloured chest strap
+      harness.position.set(0.12, 1.02, 0);
+      harness.rotation.y = Math.PI / 2;
+      g.add(cast(harness));
+
+      // Neck and head, lowered and forward like a charging bull
+      g.add(limb(V(0.12, 1.22, 0), V(0.48, 1.12, 0), 0.22, 0.17, hide));
+      const head = new THREE.Group();
+      head.position.set(0.58, 1.1, 0);
+      head.rotation.z = -0.35; // nose down
+      head.add(blob(0.2, 1.05, 0.95, 1, hide, 0, 0, 0)); // skull
+      head.add(blob(0.15, 1.15, 0.8, 0.95, hideLight, 0.2, -0.07, 0)); // broad muzzle
+      head.add(blob(0.035, 1, 1, 1, black, 0.33, -0.03, 0.06)); // nostrils
+      head.add(blob(0.035, 1, 1, 1, black, 0.33, -0.03, -0.06));
+      const noseRing = new THREE.Mesh(new THREE.TorusGeometry(0.06, 0.012, 8, 16), gold);
+      noseRing.position.set(0.35, -0.12, 0);
+      noseRing.rotation.y = Math.PI / 2;
+      head.add(noseRing);
+      for (const s of [1, -1]) {
+        head.add(blob(0.04, 1, 1, 1, white, 0.13, 0.07, 0.15 * s)); // eyes
+        head.add(blob(0.022, 1, 1, 1, black, 0.16, 0.07, 0.155 * s));
+        const ear = blob(0.07, 1.4, 0.5, 0.8, hideLight, -0.04, 0.1, 0.27 * s);
+        ear.rotation.x = 0.5 * s;
+        head.add(ear);
+        // Horn: out from the skull, up and around, hooking forward and inward
+        const pts = [V(0, 0.12, 0.14 * s), V(-0.02, 0.17, 0.32 * s), V(0.06, 0.22, 0.44 * s), V(0.2, 0.2, 0.44 * s), V(0.32, 0.1, 0.34 * s)];
+        head.add(cast(new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 20, 0.04, 8, false), horn)));
+        const tip = new THREE.Mesh(new THREE.ConeGeometry(0.035, 0.1, 8), horn);
+        tip.position.set(0.345, 0.07, 0.31 * s);
+        tip.rotation.z = -1.1;
+        head.add(cast(tip));
+        if (s === Math.sign(zReach)) {
+          // The horn on the rope's side is the one that hooks the ring.
+          const hook = new THREE.Object3D();
+          hook.position.set(0.35, 0.06, 0.32 * s);
+          head.add(hook);
+          g.userData.anchor = hook;
+        }
+      }
+      g.add(head);
+
+      // Arms braced on the thighs, hooves, powerful legs, tail
+      for (const s of [1, -1]) {
+        g.add(limb(V(0.1, 1.05, 0.36 * s), V(0.3, 0.8, 0.3 * s), 0.1, 0.08, hide));
+        g.add(blob(0.075, 1, 1, 1, hoof, 0.3, 0.78, 0.3 * s));
+        g.add(limb(V(-0.16, 0.7, 0.2 * s), V(s > 0 ? 0.14 : -0.3, 0.34, 0.22 * s), 0.16, 0.1, hide));
+        g.add(limb(V(s > 0 ? 0.14 : -0.3, 0.34, 0.22 * s), V(s > 0 ? 0.22 : -0.38, 0.08, 0.22 * s), 0.1, 0.075, hideLight));
+        g.add(blob(0.1, 1.5, 0.55, 1, hoof, s > 0 ? 0.27 : -0.33, 0.05, 0.22 * s));
+      }
+      g.add(limb(V(-0.5, 0.82, 0), V(-0.72, 0.5, 0), 0.04, 0.02, hide));
+      g.add(blob(0.07, 1, 1.5, 1, black, -0.74, 0.44, 0));
+
+      const xPos = -2.2 - row * 0.88 - (isSideA ? 0 : 0.14);
+      g.rotation.z = 0.36;
+      g.rotation.y = isSideA ? -0.12 : 0.12;
+      g.position.set(xPos, 0, zOffset);
+      return g;
+    }
+
+    function createBearPuller(index: number) {
+      const row = Math.floor(index / 2);
+      const isSideA = index % 2 === 0;
+      const zOffset = isSideA ? 0.38 : -0.38;
+      const zReach = zOffset; // the body is turned half a circle, which flips sideways
+
+      const g = new THREE.Group();
+      const body = new THREE.Group();
+      body.rotation.y = Math.PI;
+      g.add(body);
+
+      const fur = matte(0x6a3d22);
+      const furDark = matte(0x3d2212);
+      const tan = matte(0xd2ad7c);
+      const team = new THREE.MeshStandardMaterial({ color: 0xe11d48, roughness: 0.5, metalness: 0.3 });
+      const claw = new THREE.MeshStandardMaterial({ color: 0xf5f5f4, roughness: 0.3, metalness: 0.2 });
+      const white = new THREE.MeshBasicMaterial({ color: 0xffffff });
+      const black = new THREE.MeshBasicMaterial({ color: 0x050505 });
+
+      // Big round shaggy body, thick neck, rounded head
+      body.add(blob(0.55, 0.95, 0.9, 0.78, fur, 0.02, 0.98, 0));
+      body.add(blob(0.4, 0.9, 0.85, 0.8, furDark, -0.2, 0.7, 0)); // rump
+      body.add(blob(0.3, 1, 0.8, 1.1, tan, 0.2, 0.92, 0)); // belly patch
+      const scarf = new THREE.Mesh(new THREE.TorusGeometry(0.24, 0.05, 8, 20), team);
+      scarf.position.set(0.28, 1.32, 0);
+      scarf.rotation.set(0, Math.PI / 2, 0.5);
+      body.add(scarf);
+      body.add(blob(0.26, 1, 1, 1.05, fur, 0.3, 1.38, 0)); // neck
+      const head = new THREE.Group();
+      head.position.set(0.5, 1.4, 0);
+      head.rotation.z = -0.1;
+      head.add(blob(0.24, 1, 0.95, 1, fur, 0, 0, 0)); // skull
+      head.add(blob(0.13, 1.35, 0.85, 0.95, tan, 0.2, -0.06, 0)); // snout
+      head.add(blob(0.045, 1.2, 0.9, 1.2, black, 0.32, -0.02, 0)); // nose
+      for (const s of [1, -1]) {
+        head.add(blob(0.04, 1, 1, 1, white, 0.14, 0.09, 0.14 * s));
+        head.add(blob(0.022, 1, 1, 1, black, 0.17, 0.09, 0.145 * s));
+        head.add(blob(0.09, 0.7, 1, 1, fur, -0.04, 0.2, 0.17 * s)); // round ears
+        head.add(blob(0.05, 0.5, 0.8, 0.8, tan, -0.01, 0.2, 0.17 * s));
+      }
+      body.add(head);
+
+      // Long arms reaching forward: both paws grab the same iron ring
+      const hand = V(0.62, 1.04, zReach);
+      for (const s of [1, -1]) {
+        const paw = V(hand.x, hand.y - 0.02, zReach + 0.09 * s);
+        body.add(limb(V(0.2, 1.2, 0.4 * s), V(0.42, 1.12, 0.3 * s * 0.6 + zReach * 0.4), 0.14, 0.11, fur));
+        body.add(limb(V(0.42, 1.12, 0.3 * s * 0.6 + zReach * 0.4), paw, 0.11, 0.09, fur));
+        body.add(blob(0.1, 1, 0.85, 1, furDark, paw.x, paw.y, paw.z));
+        for (const c of [-1, 0, 1]) {
+          const cl = new THREE.Mesh(new THREE.ConeGeometry(0.014, 0.07, 6), claw);
+          cl.position.set(paw.x + 0.09, paw.y - 0.01, paw.z + c * 0.035);
+          cl.rotation.z = -Math.PI / 2;
+          body.add(cast(cl));
+        }
+      }
+      const grip = new THREE.Object3D();
+      grip.position.copy(hand);
+      body.add(grip);
+      g.userData.anchor = grip;
+
+      // Thick legs and wide paws, short tail
+      for (const s of [1, -1]) {
+        const knee = V(s > 0 ? 0.14 : -0.28, 0.38, 0.24 * s);
+        body.add(limb(V(-0.1, 0.68, 0.22 * s), knee, 0.19, 0.13, fur));
+        body.add(limb(knee, V(s > 0 ? 0.22 : -0.34, 0.08, 0.24 * s), 0.13, 0.1, furDark));
+        body.add(blob(0.11, 1.7, 0.5, 1.1, furDark, s > 0 ? 0.28 : -0.4, 0.05, 0.24 * s));
+      }
+      body.add(blob(0.07, 1, 1, 1, fur, -0.52, 0.8, 0));
+
+      const xPos = 2.2 + row * 0.88 + (isSideA ? 0 : 0.14);
+      g.rotation.z = -0.36;
+      g.rotation.y = isSideA ? 0.12 : -0.12;
+      g.position.set(xPos, 0, zOffset);
+      return g;
     }
 
     // Dynamic Team Puller Arrays (Pool of up to 20 pullers per side)
@@ -665,6 +475,10 @@ export const ThreeTugOfWarArena: React.FC<ThreeTugOfWarArenaProps> = ({
       emissiveIntensity: 0.25,
     });
 
+    let ropeCurve: THREE.CatmullRomCurve3 | null = null;
+    let ropeFrom = 0;
+    let ropeTo = 1;
+
     function updateRopeCurve(shift: number, sag: number, bulls: number, bears: number) {
       if (ropeMesh) {
         ropeGroup.remove(ropeMesh);
@@ -686,6 +500,9 @@ export const ThreeTugOfWarArena: React.FC<ThreeTugOfWarArenaProps> = ({
       ];
 
       const curve = new THREE.CatmullRomCurve3(points);
+      ropeCurve = curve;
+      ropeFrom = bullEnd;
+      ropeTo = bearEnd;
       const ropeGeo = new THREE.TubeGeometry(curve, 48, 0.065, 8, false);
       ropeMesh = new THREE.Mesh(ropeGeo, ropeMat);
       ropeMesh.castShadow = !isSoftwareGl;
@@ -693,6 +510,29 @@ export const ThreeTugOfWarArena: React.FC<ThreeTugOfWarArenaProps> = ({
     }
 
     updateRopeCurve(0, 0, stateRef.current.bulls, stateRef.current.bears);
+
+    // One iron ring per puller, sliding on the rope where its horn or paws grip it
+    const ringMat = new THREE.MeshStandardMaterial({ color: 0xcbd5e1, roughness: 0.25, metalness: 0.95 });
+    const makeRing = () => {
+      const r = new THREE.Mesh(new THREE.TorusGeometry(0.15, 0.028, 10, 24), ringMat); // hole faces sideways
+      r.castShadow = !isSoftwareGl;
+      scene.add(r);
+      return r;
+    };
+    const bullRings = bullPullers.map(() => makeRing());
+    const bearRings = bearPullers.map(() => makeRing());
+    const anchorPos = new THREE.Vector3();
+    const placeRing = (ring: THREE.Mesh, puller: THREE.Group, show: boolean) => {
+      ring.visible = show;
+      if (!show || !ropeCurve) return;
+      puller.updateMatrixWorld(true);
+      (puller.userData.anchor as THREE.Object3D).getWorldPosition(anchorPos);
+      const u = THREE.MathUtils.clamp((anchorPos.x - ropeFrom) / (ropeTo - ropeFrom), 0.01, 0.99);
+      const p = ropeCurve.getPointAt(u);
+      // Lift or lower the puller a little each frame so its contact point meets the rope
+      puller.position.y = THREE.MathUtils.clamp(puller.position.y + (p.y - anchorPos.y) * 0.25, -0.3, 0.3);
+      ring.position.set(anchorPos.x, p.y + 0.06, 0);
+    };
 
     // 7. Spark / Dust Particle System
     const particleCount = isSoftwareGl ? 15 : 45;
@@ -767,6 +607,9 @@ export const ThreeTugOfWarArena: React.FC<ThreeTugOfWarArenaProps> = ({
         brp.visible = idx < bears;
       });
 
+      bullPullers.forEach((bp, idx) => placeRing(bullRings[idx], bp, idx < bulls));
+      bearPullers.forEach((brp, idx) => placeRing(bearRings[idx], brp, idx < bears));
+
       // Animate Spark particles
       const positions = particleGeo.attributes.position.array as Float32Array;
       for (let i = 0; i < particleCount * 3; i += 3) {
@@ -836,8 +679,9 @@ export const ThreeTugOfWarArena: React.FC<ThreeTugOfWarArenaProps> = ({
   const total = Math.max(1, bullsCount + bearsCount);
   const bullPercent = Math.round((bullsCount / total) * 100);
   const bearPercent = 100 - bullPercent;
-  const leadSide = bullsCount > bearsCount ? 'Bulls Lead' : bearsCount > bullsCount ? 'Bears Lead' : 'Even Tension';
-  const pullDistance = Math.abs((bullsCount - bearsCount) / total * 3.8).toFixed(1);
+  const effBias = biasProp ?? (bullsCount - bearsCount) / total;
+  const leadSide = effBias > 0.001 ? 'Bulls Lead' : effBias < -0.001 ? 'Bears Lead' : 'Even Tension';
+  const pullDistance = Math.abs(effBias * 3.8).toFixed(1);
 
   return (
     <div
