@@ -13,6 +13,7 @@ export const escrowEnabled = ESCROW_ADDRESS !== '';
 export const ESCROW_ABI = parseAbi([
   'function join(bytes32 key, uint8 side)',
   'function claim(bytes32 key)',
+  'function leave(bytes32 key)',
   'function settle(bytes32 key, uint8 result)',
   'function matches(bytes32) view returns (uint32 bulls, uint32 bears, uint64 startedAt, uint8 result, uint256 rakeOwed)',
   'function sideOf(bytes32, address) view returns (uint8)',
@@ -59,4 +60,10 @@ export async function escrowStatus(ticker: string, matchNumber: number, player: 
     pub().readContract({ address: ESCROW_ADDRESS as Hex, abi: ESCROW_ABI, functionName: 'claimed', args: [key, player] }),
   ]);
   return { bulls: Number(m[0]), bears: Number(m[1]), result: Number(m[3]), joined: side !== 0, claimed: done };
+}
+
+/** Takes the stake back from a match that has not started. */
+export async function leaveEscrow(key: Hex, address: Hex, ticker: string, matchNumber: number) {
+  if (!escrowEnabled) throw new Error('The escrow is not switched on.');
+  return send(key, address, ESCROW_ABI, 'leave', [matchKey(ticker, matchNumber)], ESCROW_ADDRESS as Hex);
 }

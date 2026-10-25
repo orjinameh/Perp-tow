@@ -40,6 +40,7 @@ contract TugEscrow {
     event Joined(bytes32 indexed key, address indexed player, Side side, uint32 total);
     event Started(bytes32 indexed key, uint64 startedAt);
     event Settled(bytes32 indexed key, Result result);
+    event Left(bytes32 indexed key, address indexed player);
     event Claimed(bytes32 indexed key, address indexed player, uint256 amount);
 
     constructor(IERC20 _token, uint256 _stake, uint32 _size, uint64 _duration, uint64 _graceAfter, uint16 _rakeBps) {
@@ -63,6 +64,18 @@ contract TugEscrow {
         uint32 total = m.bulls + m.bears;
         emit Joined(key, msg.sender, side, total);
         if (total == size) { m.startedAt = uint64(block.timestamp); emit Started(key, m.startedAt); }
+    }
+
+    /// Before a match starts, a player can take their stake back and give up the seat.
+    function leave(bytes32 key) external {
+        Match storage m = matches[key];
+        require(m.startedAt == 0, "already started");
+        Side s = sideOf[key][msg.sender];
+        require(s != Side.None, "not in this match");
+        sideOf[key][msg.sender] = Side.None;
+        if (s == Side.Bulls) m.bulls--; else m.bears--;
+        require(token.transfer(msg.sender, stake), "refund");
+        emit Left(key, msg.sender);
     }
 
     /// Operator posts who won once the match is over. A one-sided roster or a tie is a Refund.

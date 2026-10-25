@@ -14,6 +14,7 @@ export const WalletPanel: React.FC<{ wallet: GameWallet }> = ({ wallet }) => {
   const [importOpen, setImportOpen] = useState(false);
   const [importText, setImportText] = useState('');
   const [copied, setCopied] = useState(false);
+  const [closeTicker, setCloseTicker] = useState('BTC');
 
   const refreshBalance = useCallback(async () => {
     if (!wallet.address) return;
@@ -69,6 +70,36 @@ export const WalletPanel: React.FC<{ wallet: GameWallet }> = ({ wallet }) => {
     }
   };
 
+  const closePos = async () => {
+    if (!wallet.key || !wallet.address) return;
+    setBusy(true);
+    setStatus(null);
+    try {
+      const t = await loadTrading();
+      setStatus(await t.closeMyPosition(wallet.key, wallet.address, closeTicker.trim().toUpperCase()));
+      refreshBalance();
+    } catch (e) {
+      setStatus(`Close failed: ${e instanceof Error ? e.message.slice(0, 700) : String(e)}`);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const withdraw = async () => {
+    if (!wallet.key || !wallet.address) return;
+    setBusy(true);
+    setStatus(null);
+    try {
+      const t = await loadTrading();
+      setStatus(await t.withdrawAllFromMargin(wallet.key, wallet.address));
+      refreshBalance();
+    } catch (e) {
+      setStatus(`Withdraw failed: ${e instanceof Error ? e.message.slice(0, 700) : String(e)}`);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const doImport = () => {
     try {
       wallet.importKey(importText);
@@ -119,6 +150,16 @@ export const WalletPanel: React.FC<{ wallet: GameWallet }> = ({ wallet }) => {
             <button className={btn} onClick={claim} disabled={busy}>
               Claim paper USDso
             </button>
+            <span className="inline-flex items-center gap-1">
+              <input
+                value={closeTicker}
+                onChange={(e) => setCloseTicker(e.target.value)}
+                className="w-14 rounded-lg border border-zinc-800 bg-zinc-900 px-2 py-1.5 text-xs text-white focus:border-emerald-500 focus:outline-none"
+                aria-label="Market to close"
+              />
+              <button className={btn} onClick={closePos} disabled={busy}>Close position</button>
+            </span>
+            <button className={btn} onClick={withdraw} disabled={busy}>Withdraw margin to wallet</button>
             <button className={btn} onClick={refreshBalance}>Refresh</button>
             <button
               className="text-zinc-500 hover:text-rose-300 underline underline-offset-2"

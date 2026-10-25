@@ -1,5 +1,5 @@
 // Posts a finished match's result to the escrow. Only the operator (the deployer) can send it.
-//   OPERATOR_KEY=0x... NEXT_PUBLIC_ESCROW_ADDRESS=0x... npx tsx scripts/settle.ts BTC 3
+//   OPERATOR_KEY=0x... NEXT_PUBLIC_ESCROW_ADDRESS=0x... npx tsx scripts/settle.mts BTC 3
 // The result is recomputed here from public dreamDEX data (same code as the app), never typed in.
 import { createPublicClient, createWalletClient, http } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
@@ -10,7 +10,7 @@ import { ESCROW_ABI, matchKey, RPC } from '../lib/escrow';
 const [ticker, numStr] = process.argv.slice(2);
 const key = process.env.OPERATOR_KEY as `0x${string}` | undefined;
 const escrow = process.env.NEXT_PUBLIC_ESCROW_ADDRESS as `0x${string}` | undefined;
-if (!ticker || !numStr || !key || !escrow) throw new Error('Usage: OPERATOR_KEY=0x.. NEXT_PUBLIC_ESCROW_ADDRESS=0x.. npx tsx scripts/settle.ts BTC 3');
+if (!ticker || !numStr || !key || !escrow) throw new Error('Usage: OPERATOR_KEY=0x.. NEXT_PUBLIC_ESCROW_ADDRESS=0x.. npx tsx scripts/settle.mts BTC 3');
 const number = Number(numStr);
 
 const pub = createPublicClient({ chain: hidekiTestnet, transport: http(RPC) });
@@ -24,8 +24,10 @@ const idx = await fetch(process.env.INDEXER_URL ?? 'https://hideki-dev.smk.somni
 const pool = idx.data?.Market?.[0]?.id as string | undefined;
 if (!pool) throw new Error(`No perp market ${ticker}.`);
 
-const m = (await loadMatches(pool, ticker, null)).find((x) => x.id === `${ticker} #${number}`);
-if (!m) throw new Error('That match does not exist on chain.');
+const all = await loadMatches(pool, ticker, null);
+console.log(`Matches found on ${ticker}:`, all.length ? all.map((x) => `${x.id} (${x.total}/${x.requiredPlayers}, ${x.status})`).join(', ') : 'none');
+const m = all.find((x) => x.id === `${ticker} #${number}`);
+if (!m) throw new Error(`No match ${ticker} #${number} was found. Use one of the numbers listed above.`);
 if (m.status !== 'settled') throw new Error(`Match is ${m.status}, not finished yet.`);
 
 const k = matchKey(ticker, number);

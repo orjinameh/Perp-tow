@@ -243,15 +243,13 @@ export async function closeMyPosition(key: Hex, address: Hex, ticker: string): P
   if (!preview.priceable) throw new Error(`${ticker}-PERP is not priceable right now, so the close cannot be sized. Try again shortly.`);
   if (preview.closedQuantity <= 0n) return `No open ${ticker} position to close.`;
 
-  // Which way the position points: the preview may say so; otherwise read the margin account's position.
-  let wasLong: boolean | undefined = preview.isLong ?? (preview.side ? preview.side === 'long' : undefined);
-  if (wasLong === undefined) {
-    const acct = (await ex.client.getMarginAccount(m.marginBank, address)) as unknown as { positions?: { pool?: string; size?: bigint; quantity?: bigint; isLong?: boolean }[] };
-    const p = acct.positions?.find((x) => x.pool?.toLowerCase() === m.poolAddress.toLowerCase());
-    if (p?.isLong !== undefined) wasLong = p.isLong;
-    else if (p) wasLong = BigInt(p.size ?? p.quantity ?? 0n) > 0n;
+  // Which way the position points: the exchange helper lists positions with a symbol and a side.
+  const positions = (await (ex as unknown as { fetchPositions: () => Promise<{ symbol: string; side: string }[]> }).fetchPositions()) ?? [];
+  const mine = positions.find((p) => p.symbol.toUpperCase().startsWith(ticker.toUpperCase()));
+  if (!mine) {
+    throw new Error(`Could not find a ${ticker} position to read the side from. Positions seen: ${positions.map((p) => `${p.symbol} ${p.side}`).join(', ') || 'none'}. Nothing was sent.`);
   }
-  if (wasLong === undefined) throw new Error('Could not tell whether the position is long or short, so nothing was sent.');
+  const wasLong = mine.side === 'long';
 
   const isBid = !wasLong; // closing a long means selling
   const mark = BigInt(m.markPrice);
@@ -267,4 +265,27 @@ export async function closeMyPosition(key: Hex, address: Hex, ticker: string): P
   })) as unknown as { hash?: string; receipt?: { status?: string } };
   if (res.receipt?.status && res.receipt.status !== 'success') throw new Error('The close transaction reverted on chain.');
   return `Position closed.${res.hash ? ` Tx ${res.hash}` : ''}`;
+}
+
+/** Moves everything unlocked in the margin bank back to the game wallet's own USDso balance. */
+export async function withdrawAllFromMargin(key: Hex, address: Hex): Promise<string> {
+  const ex = makeExchange(key);
+  const rows = (await ex.client.listPerpMarkets()) as unknown as PerpRow[];
+  const bank = (rows.find((r) => r.baseSymbol === 'BTC') ?? rows[0])?.marginBank;
+  if (!bank) throw new Error('No perp market was returned, so there is no margin bank to withdraw from.');
+  const acct = (await ex.client.getMarginAccount(bank, address)) as unknown as { unlockedCollateralBalance?: bigint | string; lockedCollateral?: bigint | string };
+  const unlocked = BigInt(acct.unlockedCollateralBalance ?? 0);
+  if (unlocked === 0n) {
+    return `Nothing to withdraw: unlocked margin is 0${acct.lockedCollateral && BigInt(acct.lockedCollateral) > 0n ? ' (the rest is locked by an open position: close it first)' : ''}.`;
+  }
+  const withdraw = (ex.trader as unknown as Record<string, (...a: unknown[]) => Promise<unknown>>).withdrawMargin;
+  const call = withdraw.bind(ex.trader);
+  try {
+    await call({ marginBank: bank, amount: unlocked });
+  } catch (first) {
+    const msg = first instanceof Error ? first.message : String(first);
+    if (/reverted|insufficient/i.test(msg) || !/marginBank|amount|argument|invalid|undefined|required|bigint|type/i.test(msg)) throw first;
+    await call(bank, unlocked);
+  }
+  return `Withdrew ${formatUnits(unlocked, 18)} USDso from margin to the wallet.`;
 }

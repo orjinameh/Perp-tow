@@ -198,7 +198,7 @@ export const MatchesListScreen: React.FC<MatchesListScreenProps> = ({
 
       {error && matches.length === 0 && (
         <div className="rounded-2xl border border-rose-500/30 bg-rose-500/5 p-6 text-center text-xs text-zinc-300">
-          Could not read matches from the dreamDEX indexer: {error}
+          Could not read matches: {error}
         </div>
       )}
 
@@ -212,7 +212,7 @@ export const MatchesListScreen: React.FC<MatchesListScreenProps> = ({
         <div className="rounded-2xl border border-zinc-800 bg-zinc-900/50 p-8 text-center space-y-2">
           <div className="text-base font-semibold text-white">No {market} matches yet</div>
           <p className="text-xs text-zinc-400 max-w-md mx-auto">
-            Matches are rebuilt from real players&apos; orders on dreamDEX, and nobody has entered one on this market yet.
+            Matches are rebuilt from the on-chain seat registry, and nobody has entered one on this market yet.
           </p>
         </div>
       )}
