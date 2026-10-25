@@ -5,19 +5,22 @@ import { GameMatch } from '@/lib/types';
 import { MATCH_DURATION_SEC, MIN_PLAYERS } from '@/lib/gameTag';
 import { calculatePayout, CORE_RULES } from '@/lib/payout';
 import { useGameWallet } from '@/lib/useGameWallet';
+import { Spinner } from '@/components/ProgressModal';
+import { useProgress } from '@/lib/useProgress';
 
 const usd = (n: number) => `$${n.toLocaleString(undefined, { maximumFractionDigits: n < 1 ? 6 : 2 })}`;
 const clock = (s: number) => `${Math.floor(Math.max(0, s) / 60)}:${String(Math.max(0, s) % 60).padStart(2, '0')}`;
 const btn = 'rounded-lg border px-3 py-1.5 text-xs disabled:opacity-50';
 
 /** Where this match is in its life: lobby, "continue?", opening trades, running, settled or cancelled. */
-export const MatchStatusPanel: React.FC<{ match: GameMatch }> = ({ match }) => {
+const Inner: React.FC<{ match: GameMatch; progress: ReturnType<typeof useProgress> }> = ({ match, progress }) => {
   const wallet = useGameWallet();
   const [now, setNow] = useState(() => Math.floor(Date.now() / 1000));
   const [msg, setMsg] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [escrow, setEscrow] = useState<{ result: number; joined: boolean; claimed: boolean } | null>(null);
   const number = Number(match.id.split('#')[1]);
+  const escrowOn = Boolean(process.env.NEXT_PUBLIC_ESCROW_ADDRESS);
 
   useEffect(() => {
     const id = setInterval(() => setNow(Math.floor(Date.now() / 1000)), 1000);
@@ -41,41 +44,37 @@ export const MatchStatusPanel: React.FC<{ match: GameMatch }> = ({ match }) => {
   const me = match.playersList?.find((p) => p.isUser);
   const key = wallet.key as `0x${string}` | null;
 
-  const act = async (fn: () => Promise<string>) => {
+  const act = async (title: string, labels: string[], fn: (advance: (i: number) => void) => Promise<string>) => {
     setBusy(true);
     setMsg(null);
-    try {
-      setMsg(await fn());
-    } catch (e) {
-      setMsg(e instanceof Error ? e.message.split('\n')[0] : String(e));
-    } finally {
-      setBusy(false);
-    }
+    const out = await progress.run(title, labels, fn);
+    setMsg(out.ok ? out.value : out.error);
+    setBusy(false);
   };
 
-  const doConfirm = () => act(async () => {
+  const doConfirm = () => act('Confirming your seat', ['Sending confirmation'], async () => {
     const r = await import('@/lib/registry');
     const h = await r.confirmRegistry(key as `0x${string}`, match.market, number);
     return `You are in. Tx ${h}`;
   });
-  const doLeave = () => act(async () => {
+  const doLeave = () => act('Leaving the lobby', ['Freeing your seat'], async () => {
     const r = await import('@/lib/registry');
     const h = await r.leaveRegistry(key as `0x${string}`, match.market, number);
     return `You left the lobby. Tx ${h}`;
   });
-  const doOpenTrade = () => act(async () => {
+  const doOpenTrade = () => act('Opening your trade', escrowOn ? ['Staking $10 in the escrow', 'Setting leverage and placing the order'] : ['Setting leverage and placing the order'], async (advance) => {
     const [o, p] = await Promise.all([import('@/lib/openTrade'), import('@/lib/pending')]);
     p.markPlaced({ ticker: match.market, number, address: wallet.address as string }, true);
     try {
-      const r = await o.openTrade({ key: key as `0x${string}`, address: wallet.address as `0x${string}`, ticker: match.market, side: me!.side, number });
+      const r = await o.openTrade({ key: key as `0x${string}`, address: wallet.address as `0x${string}`, ticker: match.market, side: me!.side, number, onStep: advance });
       return `Trade placed. Tx ${r.txHash}`;
     } catch (e) {
       p.markPlaced({ ticker: match.market, number, address: wallet.address as string }, false);
       throw e;
     }
   });
-  const doClose = () => act(async () => (await import('@/lib/trading')).closeMyPosition(key as `0x${string}`, wallet.address as `0x${string}`, match.market));
-  const doClaim = () => act(async () => {
+  const doClose = () => act('Closing your position', ['Sending the closing order'], async () => (await import('@/lib/trading')).closeMyPosition(key as `0x${string}`, wallet.address as `0x${string}`, match.market));
+  const doClaim = () => act(match.status === 'cancelled' ? 'Getting your stake back' : 'Claiming your payout', ['Sending the claim'], async () => {
     const e = await import('@/lib/escrow');
     const h = await (match.status === 'cancelled' ? e.leaveEscrow : e.claimEscrow)(key as `0x${string}`, wallet.address as `0x${string}`, match.market, number);
     return `Done. Tx ${h}`;
@@ -96,7 +95,7 @@ export const MatchStatusPanel: React.FC<{ match: GameMatch }> = ({ match }) => {
         </div>
         {me && (
           <button onClick={doLeave} disabled={busy} className={`${btn} border-zinc-700 bg-zinc-800 text-zinc-200 hover:bg-zinc-700`}>
-            {busy ? 'Working…' : 'Leave this lobby'}
+            {busy ? <span className="inline-flex items-center gap-1.5"><Spinner className="h-3 w-3" />Working…</span> : 'Leave this lobby'}
           </button>
         )}
         {note}
@@ -115,7 +114,7 @@ export const MatchStatusPanel: React.FC<{ match: GameMatch }> = ({ match }) => {
         </div>
         {me && !me.confirmed && (
           <button onClick={doConfirm} disabled={busy} className={`${btn} border-amber-500/40 bg-amber-500/10 text-amber-200 hover:bg-amber-500/20`}>
-            {busy ? 'Working…' : 'Yes, continue with fewer players'}
+            {busy ? <span className="inline-flex items-center gap-1.5"><Spinner className="h-3 w-3" />Working…</span> : 'Yes, continue with fewer players'}
           </button>
         )}
         {me?.confirmed && <div className="text-emerald-300">You said yes. Waiting for the others.</div>}
@@ -134,7 +133,7 @@ export const MatchStatusPanel: React.FC<{ match: GameMatch }> = ({ match }) => {
         </div>
         {me && (
           <button onClick={doOpenTrade} disabled={busy} className={`${btn} border-emerald-500/40 bg-emerald-500/10 text-emerald-200 hover:bg-emerald-500/20`}>
-            {busy ? 'Placing…' : 'Stake and open my trade now'}
+            {busy ? <span className="inline-flex items-center gap-1.5"><Spinner className="h-3 w-3" />Placing…</span> : 'Stake and open my trade now'}
           </button>
         )}
         {note}
@@ -160,7 +159,7 @@ export const MatchStatusPanel: React.FC<{ match: GameMatch }> = ({ match }) => {
   const start = match.startPrice;
   const closeButton = me && (
     <button onClick={doClose} disabled={busy} className={`${btn} border-zinc-700 bg-zinc-800 text-zinc-200 hover:bg-zinc-700`}>
-      {busy ? 'Closing…' : `Close my ${match.market} position`}
+      {busy ? <span className="inline-flex items-center gap-1.5"><Spinner className="h-3 w-3" />Closing…</span> : `Close my ${match.market} position`}
     </button>
   );
 
@@ -207,11 +206,21 @@ export const MatchStatusPanel: React.FC<{ match: GameMatch }> = ({ match }) => {
       </div>
       {escrow && escrow.joined && escrow.result !== 0 && !escrow.claimed && (
         <button onClick={doClaim} disabled={busy} className={`${btn} border-emerald-500/40 bg-emerald-500/10 text-emerald-200 hover:bg-emerald-500/20`}>
-          {busy ? 'Claiming…' : 'Claim payout'}
+          {busy ? <span className="inline-flex items-center gap-1.5"><Spinner className="h-3 w-3" />Claiming…</span> : 'Claim payout'}
         </button>
       )}
       {closeButton}
       {note}
     </Box>
+  );
+};
+
+export const MatchStatusPanel: React.FC<{ match: GameMatch }> = ({ match }) => {
+  const progress = useProgress();
+  return (
+    <>
+      <Inner match={match} progress={progress} />
+      {progress.modal}
+    </>
   );
 };

@@ -1,5 +1,6 @@
 'use client';
 
+import { MatchListSkeleton } from '@/components/Skeleton';
 import { MATCH_SIZE, NOMINAL_STAKE_USD } from '@/lib/gameTag';
 import { matchPull } from '@/lib/matches';
 import React, { useState } from 'react';
@@ -205,8 +206,9 @@ export const MatchesListScreen: React.FC<MatchesListScreenProps> = ({
       )}
 
       {!error && loading && matches.length === 0 && (
-        <div className="rounded-2xl border border-zinc-800 bg-zinc-900/50 p-6 text-center text-xs text-zinc-400">
-          Reading {market} matches from the chain...
+        <div className="space-y-3">
+          <MatchListSkeleton />
+          <p className="text-center text-xs text-zinc-500">Reading {market} matches from the chain…</p>
         </div>
       )}
 

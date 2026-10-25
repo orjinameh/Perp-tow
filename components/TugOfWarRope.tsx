@@ -1,5 +1,6 @@
 'use client';
 
+import { MATCH_SIZE } from '@/lib/gameTag';
 import React from 'react';
 import Image from 'next/image';
 import { TrendingUp, TrendingDown, Users, Zap, Shield, ArrowLeft, ArrowRight } from 'lucide-react';
@@ -11,6 +12,8 @@ interface TugOfWarRopeProps {
   interactive?: boolean;
   highlightSide?: 'bulls' | 'bears' | null;
   compact?: boolean;
+  bias?: number; // -1..1: when given (live matches) the pull follows the price move, not head count
+  biasLabel?: string;
 }
 
 export const TugOfWarRope: React.FC<TugOfWarRopeProps> = ({
@@ -19,13 +22,15 @@ export const TugOfWarRope: React.FC<TugOfWarRopeProps> = ({
   totalPlayers = bullsCount + bearsCount,
   highlightSide = null,
   compact = false,
+  bias,
+  biasLabel,
 }) => {
   const total = Math.max(1, bullsCount + bearsCount);
   const bullsPercent = Math.round((bullsCount / total) * 100);
   const bearsPercent = 100 - bullsPercent;
 
   // Normalized bias between -1 (All Bears) and +1 (All Bulls)
-  const normalizedBias = (bullsCount - bearsCount) / total;
+  const normalizedBias = bias ?? (bullsCount - bearsCount) / total;
 
   // Center knot offset across the horizontal rope (0% is far left, 100% is far right, 50% is center)
   // If Bulls lead (normalizedBias > 0), moves left towards Bull winch (e.g., 50% - 0.5 * 38% = 31%)
@@ -41,7 +46,7 @@ export const TugOfWarRope: React.FC<TugOfWarRopeProps> = ({
   const ribbonTiltDeg = normalizedBias * -15;
 
   // Leading side indicator
-  const leadingSide = bullsCount > bearsCount ? 'bulls' : bearsCount > bullsCount ? 'bears' : 'even';
+  const leadingSide = bias !== undefined ? (bias > 0.001 ? 'bulls' : bias < -0.001 ? 'bears' : 'even') : bullsCount > bearsCount ? 'bulls' : bearsCount > bullsCount ? 'bears' : 'even';
 
   return (
     <div
@@ -103,13 +108,13 @@ export const TugOfWarRope: React.FC<TugOfWarRopeProps> = ({
               }
             >
               {leadingSide === 'bulls'
-                ? `← Bull Pull (+${bullsCount - bearsCount})`
+                ? (biasLabel ? `← Bulls ${biasLabel}` : `← Bull Pull (+${bullsCount - bearsCount})`)
                 : leadingSide === 'bears'
-                ? `Bear Pull (+${bearsCount - bullsCount}) →`
+                ? (biasLabel ? `Bears ${biasLabel} →` : `Bear Pull (+${bearsCount - bullsCount}) →`)
                 : 'Teams Matched 1:1 (0.0m Center)'}
             </span>
             <span className="text-zinc-600">·</span>
-            <span className="text-zinc-300 font-normal text-xs">{totalPlayers}/20 Locked</span>
+            <span className="text-zinc-300 font-normal text-xs">{totalPlayers}/{MATCH_SIZE} Locked</span>
           </div>
         </div>
 

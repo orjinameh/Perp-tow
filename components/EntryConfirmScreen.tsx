@@ -1,5 +1,7 @@
 'use client';
 
+import { Spinner } from '@/components/ProgressModal';
+import { useProgress } from '@/lib/useProgress';
 import { MATCH_SIZE, NOMINAL_STAKE_USD } from '@/lib/gameTag';
 import React from 'react';
 import Image from 'next/image';
@@ -41,6 +43,7 @@ export const EntryConfirmScreen: React.FC<EntryConfirmScreenProps> = ({
 }) => {
   const isFull = match.total === MATCH_SIZE;
   const [busy, setBusy] = React.useState(false);
+  const progress = useProgress();
   const [error, setError] = React.useState<string | null>(null);
 
   // The last seat must not make the roster one-sided.
@@ -51,23 +54,27 @@ export const EntryConfirmScreen: React.FC<EntryConfirmScreenProps> = ({
     if (!wallet.key || !wallet.address) return;
     setBusy(true);
     setError(null);
-    try {
+    const out = await progress.run('Taking your seat', ['Sign and send the seat transaction', 'Waiting for the chain to confirm'], async (advance) => {
       // Loaded only now, in the browser, so the SDK never runs during server rendering.
       const { enterRegistry } = await import('@/lib/registry');
       const { addPending } = await import('@/lib/pending');
       const number = Number(match.id.split('#')[1]);
       // The seat comes first: a full or closed lobby is refused here.
-      const seatTx = await enterRegistry(wallet.key, market, number, selectedSide);
+      advance(0);
+      const seatTx = await enterRegistry(wallet.key as string, market, number, selectedSide);
+      advance(1);
       // The real trade is placed automatically when the match locks, by this browser tab.
-      addPending({ ticker: market, pool, number, side: selectedSide, address: wallet.address, placed: false });
-      const receipt: EntryReceipt = { txHash: seatTx, orderId: null, quantity: 0, filledQuantity: 0, price: 0, notionalUsd: 0, raisedToMinimum: false, seatOnly: true };
-      soundFx.playEntrySuccess();
-      onEntered(receipt);
-    } catch (e) {
-      setError(e instanceof Error ? e.message.split('\n')[0] : String(e));
-    } finally {
-      setBusy(false);
+      addPending({ ticker: market, pool, number, side: selectedSide, address: wallet.address as string, placed: false });
+      return seatTx;
+    });
+    setBusy(false);
+    if (!out.ok) {
+      setError(out.error);
+      return;
     }
+    const receipt: EntryReceipt = { txHash: out.value, orderId: null, quantity: 0, filledQuantity: 0, price: 0, notionalUsd: 0, raisedToMinimum: false, seatOnly: true };
+    soundFx.playEntrySuccess();
+    onEntered(receipt);
   };
 
   // Potential payout if user's chosen side wins
@@ -232,12 +239,13 @@ export const EntryConfirmScreen: React.FC<EntryConfirmScreenProps> = ({
             onClick={placeEntry}
             className="w-full sm:w-auto disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-zinc-950 font-black text-sm py-3.5 px-8 shadow-xl shadow-emerald-500/30 transition-transform hover:scale-[1.02]"
           >
-            <Ticket className="h-4 w-4" />
-            <span>{busy ? 'Taking your seat...' : 'Take my seat'}</span>
+            {busy ? <Spinner className="h-4 w-4" /> : <Ticket className="h-4 w-4" />}
+            <span>{busy ? 'Taking your seat…' : 'Take my seat'}</span>
             <ArrowRight className="h-4 w-4" />
           </button>
         </div>
       </div>
+      {progress.modal}
     </div>
   );
 };

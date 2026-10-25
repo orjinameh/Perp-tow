@@ -1,5 +1,6 @@
 'use client';
 
+import { Spinner } from '@/components/ProgressModal';
 import React, { useCallback, useEffect, useState } from 'react';
 import { GameWallet } from '@/lib/useGameWallet';
 
@@ -145,7 +146,7 @@ export const WalletPanel: React.FC<{ wallet: GameWallet }> = ({ wallet }) => {
               USDso: <span className="font-mono text-zinc-200">{usdso ?? '...'}</span>
             </span>
             <button className={btn} onClick={deposit} disabled={busy}>
-              {busy ? 'Working...' : 'Deposit USDso to margin'}
+              {busy ? <span className="inline-flex items-center gap-1.5"><Spinner className="h-3 w-3" />Working…</span> : 'Deposit USDso to margin'}
             </button>
             <button className={btn} onClick={claim} disabled={busy}>
               Claim paper USDso

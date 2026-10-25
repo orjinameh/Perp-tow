@@ -2,7 +2,7 @@ import { SomniaMarkets, SOMNIA_HIDEKI_TESTNET_ADDRESSES } from '@somnia-chain/ma
 import { hidekiTestnet } from '@somnia-chain/markets-sdk/chains';
 import { createPublicClient, formatEther, formatUnits, http, parseAbi } from 'viem';
 import { PositionSide } from './types';
-import { encodeUserData } from './gameTag';
+import { encodeUserData, LEVERAGE } from './gameTag';
 
 export const RPC_URL = 'https://api.hideki2.infra.testnet.somnia.network';
 export const WS_URL = 'wss://api.hideki2.infra.testnet.somnia.network/ws';
@@ -160,13 +160,35 @@ export async function enterMatch(args: {
   // on the lot grid, raised to the market minimum if the stake is smaller than that.
   const slipped = isBid ? (mark * (10_000n + SLIPPAGE_BPS)) / 10_000n : (mark * (10_000n - SLIPPAGE_BPS)) / 10_000n;
   const price = tick > 0n ? (slipped / tick) * tick : slipped;
-  const stake18 = BigInt(Math.round(stakeUsd * 1e6)) * 10n ** 12n;
+  // The stake is the margin; the position is the stake times the game's leverage.
+  const stake18 = BigInt(Math.round(stakeUsd * LEVERAGE * 1e6)) * 10n ** 12n;
   let quantity = (stake18 * 10n ** dec) / mark;
   quantity = lot > 0n ? (quantity / lot) * lot : quantity;
   let raisedToMinimum = false;
   if (quantity < min) {
     quantity = lot > 0n ? ((min + lot - 1n) / lot) * lot : min;
     raisedToMinimum = true;
+  }
+
+  // Same leverage for every player. Set once per wallet and market, then remembered in this browser.
+  const levKey = `tow.lev.${m.poolAddress}.${account}.${LEVERAGE}`;
+  let levDone = false;
+  try {
+    levDone = localStorage.getItem(levKey) === '1';
+  } catch {
+    /* storage unavailable: set it again */
+  }
+  if (!levDone) {
+    try {
+      await (ex.trader as unknown as { setPerpLeverage: (p: { pool: Hex; leverageX: number }) => Promise<unknown> }).setPerpLeverage({ pool: m.poolAddress, leverageX: LEVERAGE });
+      try {
+        localStorage.setItem(levKey, '1');
+      } catch {
+        /* ignore */
+      }
+    } catch (e) {
+      throw new Error(`Could not set ${LEVERAGE}x leverage on ${ticker}-PERP: ${e instanceof Error ? e.message.split('\n')[0] : String(e)}`);
+    }
   }
 
   // The docs' own pre-flight: refuse before sending if the market cannot take this order.

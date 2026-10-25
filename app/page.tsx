@@ -1,5 +1,6 @@
 'use client';
 
+import { LobbySkeleton } from '@/components/Skeleton';
 import React, { useState } from 'react';
 import {
   CryptoAsset,
@@ -150,9 +151,7 @@ export default function TugOfWarApp() {
       {/* Dynamic Screen Viewport */}
       <main className="flex-1 pb-16">
         {live.status === 'loading' && (
-          <div className="mx-auto max-w-3xl px-4 py-24 text-center text-sm text-zinc-400">
-            Loading live markets from the dreamDEX testnet indexer...
-          </div>
+          <LobbySkeleton />
         )}
 
         {live.status === 'error' && (

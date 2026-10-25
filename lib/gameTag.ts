@@ -25,4 +25,5 @@ const num = (v: string | undefined, d: number) => (Number(v) > 0 ? Number(v) : d
 export const LOBBY_SECONDS = num(process.env.NEXT_PUBLIC_LOBBY_SECONDS, 300); // lobby stays open this long after its first player
 export const CONFIRM_SECONDS = num(process.env.NEXT_PUBLIC_CONFIRM_SECONDS, 60); // "continue with fewer players?" window
 export const TRADE_SECONDS = 60; // after the lock, players open their real trade; the price clock starts when it ends
+export const LEVERAGE = num(process.env.NEXT_PUBLIC_LEVERAGE, 5); // same for every player; the $10 stake is the margin, the position is stake x leverage
 export const MIN_PLAYERS = 2; // a match that locks short of this, or with one team only, is cancelled
