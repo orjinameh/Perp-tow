@@ -4,24 +4,16 @@ import { readMatches } from './registry';
 
 interface Candle { t: number; open: number; close: number }
 
-async function loadCandles(pool: string, since: number): Promise<Candle[]> {
-  const d = await gql<{ Candle: { bucketStart: string; openPrice: string; closePrice: string }[] }>(`{ Candle(
-    limit: 1000,
-    where: {pool: {_eq: "${pool}"}, intervalSeconds: {_eq: 60}, bucketStart: {_gte: "${since}"}},
-    order_by: {bucketStart: asc}
-  ) { bucketStart openPrice closePrice } }`);
-  return d.Candle.map((c) => ({ t: Number(c.bucketStart), open: Number(c.openPrice) / 1e18, close: Number(c.closePrice) / 1e18 }));
-}
+const CANDLE_FIELDS = 'bucketStart openPrice closePrice';
+interface RawCandle { bucketStart: string; openPrice: string; closePrice: string }
+const q = (pool: string, alias: string, at: number | null) =>
+  `${alias}: Candle(limit: 1, where: {pool: {_eq: "${pool}"}, intervalSeconds: {_eq: 60}${at === null ? '' : `, bucketStart: {_lte: "${at}"}`}}, order_by: {bucketStart: desc}) { ${CANDLE_FIELDS} }`;
 
 /** The market price at a moment: the open of the minute it falls in, or the last close before it if that minute had no trades. */
-function priceAt(candles: Candle[], t: number): number | undefined {
-  let prev: Candle | undefined;
-  for (const c of candles) {
-    if (c.t > t) break;
-    prev = c;
-  }
-  if (!prev) return undefined;
-  return t < prev.t + 60 ? prev.open : prev.close;
+function priceFrom(c: RawCandle | undefined, t: number): number | undefined {
+  if (!c) return undefined;
+  const start = Number(c.bucketStart);
+  return (t < start + 60 ? Number(c.openPrice) : Number(c.closePrice)) / 1e18;
 }
 
 async function gql<T>(query: string): Promise<T> {
@@ -84,8 +76,21 @@ export async function loadMatches(pool: string, ticker: string, me: string | nul
     return { m, roster, status, lobbyEndsAt, confirmEndsAt, lockAt, tradeEndsAt };
   });
 
-  const starts = phases.filter((p) => p.tradeEndsAt !== undefined && now >= p.tradeEndsAt).map((p) => p.tradeEndsAt as number);
-  const candles = starts.length ? await loadCandles(pool, Math.min(...starts) - 120).catch(() => [] as Candle[]) : [];
+  // One lookup per moment that matters: the last candle at or before each match's start and end, plus the latest one.
+  // Looking backwards means a quiet minute with no trades can never leave a finished match stuck as "running".
+  const started = phases.filter((p) => p.tradeEndsAt !== undefined && now >= p.tradeEndsAt);
+  const asks: string[] = [];
+  for (const p of started) {
+    const t0 = p.tradeEndsAt as number;
+    asks.push(q(pool, `s${p.m.number}`, t0));
+    if (now >= t0 + MATCH_DURATION_SEC) asks.push(q(pool, `e${p.m.number}`, t0 + MATCH_DURATION_SEC));
+  }
+  let found: Record<string, RawCandle[]> = {};
+  if (started.length) {
+    asks.push(q(pool, 'live', null));
+    found = await gql<Record<string, RawCandle[]>>(`{ ${asks.join('\n')} }`).catch(() => ({}) as Record<string, RawCandle[]>);
+  }
+  const liveCandle = found.live?.[0];
 
   const matches: GameMatch[] = [];
   for (const ph of phases) {
@@ -104,17 +109,17 @@ export async function loadMatches(pool: string, ticker: string, me: string | nul
     if (ph.tradeEndsAt !== undefined && now >= ph.tradeEndsAt) {
       const startedAt = ph.tradeEndsAt; // the price clock starts once everyone's trade is open
       const endsAt = startedAt + MATCH_DURATION_SEC;
-      const startPrice = priceAt(candles, startedAt);
+      const startPrice = priceFrom(found[`s${ph.m.number}`]?.[0], startedAt);
       Object.assign(extra, { startedAt, endsAt, startPrice });
       if (startPrice !== undefined) {
         if (now >= endsAt) {
-          const endPrice = priceAt(candles, endsAt);
+          const endPrice = priceFrom(found[`e${ph.m.number}`]?.[0], endsAt);
           if (endPrice !== undefined) {
             status = 'settled';
             Object.assign(extra, { endPrice, settledResult: endPrice > startPrice ? 'bulls' : endPrice < startPrice ? 'bears' : 'tie' });
           }
         } else {
-          Object.assign(extra, { livePrice: candles.length ? candles[candles.length - 1].close : startPrice });
+          Object.assign(extra, { livePrice: liveCandle ? Number(liveCandle.closePrice) / 1e18 : startPrice });
         }
       }
     }

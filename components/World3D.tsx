@@ -50,8 +50,9 @@ const stdMat = (color: number, rough = 0.8) => new THREE.MeshStandardMaterial({ 
 export const World3D: React.FC<Props> = (props) => {
   const mount = useRef<HTMLDivElement>(null);
   const fade = useRef<HTMLDivElement>(null);
-  const joyBase = useRef<HTMLDivElement>(null);
-  const joyKnob = useRef<HTMLDivElement>(null);
+  const root = useRef<HTMLDivElement>(null);
+  const stickBase = useRef<HTMLDivElement>(null);
+  const stickKnob = useRef<HTMLDivElement>(null);
   const live = useRef(props);
   live.current = props;
   const api = useRef<{ setRoom: (r: WorldRoom, from: WorldRoom | null) => void } | null>(null);
@@ -600,7 +601,7 @@ export const World3D: React.FC<Props> = (props) => {
       const tg = e.target as HTMLElement | null;
       if (tg && ['INPUT', 'TEXTAREA', 'SELECT'].includes(tg.tagName)) return;
       const k = e.key.toLowerCase();
-      if (['w', 'a', 's', 'd', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(k)) {
+      if (['w', 'a', 's', 'd', 'q', 'e', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(k)) {
         if (down) keys.add(k);
         else keys.delete(k);
         if (!live.current.frozen) e.preventDefault();
@@ -611,44 +612,71 @@ export const World3D: React.FC<Props> = (props) => {
     window.addEventListener('keydown', kd);
     window.addEventListener('keyup', ku);
 
-    const base = joyBase.current;
-    const knob = joyKnob.current;
-    let joyId: number | null = null;
-    const setJoy = (e: PointerEvent) => {
-      if (!base || !knob) return;
-      const r = base.getBoundingClientRect();
-      const cx = r.left + r.width / 2;
-      const cy = r.top + r.height / 2;
-      let dx = (e.clientX - cx) / (r.width / 2);
-      let dy = (e.clientY - cy) / (r.height / 2);
-      const len = Math.hypot(dx, dy);
-      if (len > 1) {
-        dx /= len;
-        dy /= len;
+    // Touch: the left half of the screen is a movement stick that appears wherever the thumb lands;
+    // the right half looks around. Mouse: drag anywhere to look, Q / E to turn.
+    const surface = root.current;
+    const look = { yaw: 0, pitch: 0.62 };
+    const STICK = 56;
+    let moveId: number | null = null;
+    let lookId: number | null = null;
+    let origin = { x: 0, y: 0 };
+    let last = { x: 0, y: 0 };
+    const showStick = (on: boolean) => {
+      if (stickBase.current) stickBase.current.style.opacity = on ? '1' : '0';
+    };
+    const onDown = (e: PointerEvent) => {
+      if ((e.target as HTMLElement).closest('[data-world-ui]')) return;
+      const r = surface?.getBoundingClientRect();
+      if (!r) return;
+      const leftHalf = e.clientX - r.left < r.width / 2;
+      if (e.pointerType === 'touch' && leftHalf && moveId === null) {
+        moveId = e.pointerId;
+        origin = { x: e.clientX, y: e.clientY };
+        if (stickBase.current) {
+          stickBase.current.style.left = `${e.clientX - r.left - STICK}px`;
+          stickBase.current.style.top = `${e.clientY - r.top - STICK}px`;
+        }
+        if (stickKnob.current) stickKnob.current.style.transform = 'translate(0,0)';
+        showStick(true);
+        surface?.setPointerCapture(e.pointerId);
+      } else if (lookId === null) {
+        lookId = e.pointerId;
+        last = { x: e.clientX, y: e.clientY };
+        surface?.setPointerCapture(e.pointerId);
       }
-      joy.x = Math.abs(dx) < 0.12 ? 0 : dx;
-      joy.y = Math.abs(dy) < 0.12 ? 0 : dy;
-      knob.style.transform = `translate(${dx * r.width * 0.3}px, ${dy * r.height * 0.3}px)`;
     };
-    const joyDown = (e: PointerEvent) => {
-      joyId = e.pointerId;
-      base?.setPointerCapture(e.pointerId);
-      setJoy(e);
+    const onMove = (e: PointerEvent) => {
+      if (e.pointerId === moveId) {
+        let dx = (e.clientX - origin.x) / STICK;
+        let dy = (e.clientY - origin.y) / STICK;
+        const len = Math.hypot(dx, dy);
+        if (len > 1) {
+          dx /= len;
+          dy /= len;
+        }
+        joy.x = Math.abs(dx) < 0.1 ? 0 : dx;
+        joy.y = Math.abs(dy) < 0.1 ? 0 : dy;
+        if (stickKnob.current) stickKnob.current.style.transform = `translate(${dx * STICK * 0.7}px, ${dy * STICK * 0.7}px)`;
+      } else if (e.pointerId === lookId) {
+        look.yaw -= (e.clientX - last.x) * 0.0075;
+        look.pitch = Math.max(0.25, Math.min(1.25, look.pitch + (e.clientY - last.y) * 0.005));
+        last = { x: e.clientX, y: e.clientY };
+      }
     };
-    const joyMove = (e: PointerEvent) => {
-      if (e.pointerId === joyId) setJoy(e);
+    const onUp = (e: PointerEvent) => {
+      if (e.pointerId === moveId) {
+        moveId = null;
+        joy.x = 0;
+        joy.y = 0;
+        showStick(false);
+      } else if (e.pointerId === lookId) {
+        lookId = null;
+      }
     };
-    const joyUp = (e: PointerEvent) => {
-      if (e.pointerId !== joyId) return;
-      joyId = null;
-      joy.x = 0;
-      joy.y = 0;
-      if (knob) knob.style.transform = 'translate(0,0)';
-    };
-    base?.addEventListener('pointerdown', joyDown);
-    base?.addEventListener('pointermove', joyMove);
-    base?.addEventListener('pointerup', joyUp);
-    base?.addEventListener('pointercancel', joyUp);
+    surface?.addEventListener('pointerdown', onDown);
+    surface?.addEventListener('pointermove', onMove);
+    surface?.addEventListener('pointerup', onUp);
+    surface?.addEventListener('pointercancel', onUp);
 
     // ---------- loop ----------
     const resize = () => {
@@ -707,6 +735,17 @@ export const World3D: React.FC<Props> = (props) => {
         if (keys.has('s') || keys.has('arrowdown')) iz += 1;
         ix += joy.x;
         iz += joy.y;
+        if (keys.has('q')) look.yaw += dt * 1.8;
+        if (keys.has('e')) look.yaw -= dt * 1.8;
+      }
+      // the stick and keys are relative to where the camera looks
+      {
+        const c = Math.cos(look.yaw);
+        const sn = Math.sin(look.yaw);
+        const rx = ix * c + iz * sn;
+        const rz = -ix * sn + iz * c;
+        ix = rx;
+        iz = rz;
       }
       const len = Math.hypot(ix, iz);
       if (len > 0.01) {
@@ -781,11 +820,16 @@ export const World3D: React.FC<Props> = (props) => {
         for (const tk of ticks) tk();
       }
 
-      // follow camera
-      const want = new THREE.Vector3(pos.x * 0.85, 8.6, pos.y + 10.5);
-      camPos.lerp(want, Math.min(1, dt * 4));
+      // orbit camera around the avatar
+      const dist = 11.5;
+      const want = new THREE.Vector3(
+        pos.x + Math.sin(look.yaw) * Math.cos(look.pitch) * dist,
+        Math.sin(look.pitch) * dist,
+        pos.y + Math.cos(look.yaw) * Math.cos(look.pitch) * dist,
+      );
+      camPos.lerp(want, Math.min(1, dt * 7));
       camera.position.copy(camPos);
-      camLook.set(pos.x * 0.85, 1.2, pos.y - 1.5);
+      camLook.set(pos.x, 1.2, pos.y);
       camera.lookAt(camLook);
       renderer.render(scene, camera);
     };
@@ -801,10 +845,10 @@ export const World3D: React.FC<Props> = (props) => {
       ro.disconnect();
       window.removeEventListener('keydown', kd);
       window.removeEventListener('keyup', ku);
-      base?.removeEventListener('pointerdown', joyDown);
-      base?.removeEventListener('pointermove', joyMove);
-      base?.removeEventListener('pointerup', joyUp);
-      base?.removeEventListener('pointercancel', joyUp);
+      surface?.removeEventListener('pointerdown', onDown);
+      surface?.removeEventListener('pointermove', onMove);
+      surface?.removeEventListener('pointerup', onUp);
+      surface?.removeEventListener('pointercancel', onUp);
       clearRoom();
       disposeObject(avatarRoot);
       renderer.dispose();
@@ -824,19 +868,21 @@ export const World3D: React.FC<Props> = (props) => {
   }, [roomKey]);
 
   return (
-    <div className="relative h-full w-full overflow-hidden bg-[#070b14] select-none">
+    <div ref={root} className="relative h-full w-full overflow-hidden bg-[#070b14] select-none" style={{ touchAction: 'none' }}>
       <div ref={mount} className="absolute inset-0" />
       <div ref={fade} className="pointer-events-none absolute inset-0 bg-black transition-opacity duration-300" style={{ opacity: 0 }} />
       <div className="pointer-events-none absolute bottom-3 left-1/2 -translate-x-1/2 rounded-full bg-black/55 px-3 py-1 text-[11px] text-zinc-300 [@media(pointer:coarse)]:hidden">
-        Move with W A S D or the arrow keys
+        Move: W A S D / arrows · Look: drag or Q / E
+      </div>
+      <div className="pointer-events-none absolute bottom-3 left-1/2 hidden -translate-x-1/2 rounded-full bg-black/55 px-3 py-1 text-[11px] text-zinc-300 [@media(pointer:coarse)]:block">
+        Left thumb: move · Right thumb: look
       </div>
       <div
-        ref={joyBase}
-        className="absolute bottom-5 left-5 hidden h-28 w-28 rounded-full border border-white/20 bg-white/5 backdrop-blur-sm [@media(pointer:coarse)]:block"
-        style={{ touchAction: 'none' }}
-        aria-label="Move"
+        ref={stickBase}
+        className="pointer-events-none absolute h-28 w-28 rounded-full border border-white/25 bg-white/10 transition-opacity"
+        style={{ opacity: 0 }}
       >
-        <div ref={joyKnob} className="absolute left-1/2 top-1/2 -ml-6 -mt-6 h-12 w-12 rounded-full bg-white/30 shadow-lg" />
+        <div ref={stickKnob} className="absolute left-1/2 top-1/2 -ml-6 -mt-6 h-12 w-12 rounded-full bg-white/40 shadow-lg" />
       </div>
     </div>
   );

@@ -87,6 +87,16 @@ export default function TugOfWarApp() {
   const arenaMatch = arenaId ? currentMatches.find((m) => m.id === arenaId) ?? (selectedMatch?.id === arenaId ? selectedMatch : null) : null;
   const room: WorldRoom =
     arenaId && selectedAsset ? { kind: 'arena', ticker: selectedAsset } : screen === 'lobby' || !selectedAsset ? { kind: 'hub' } : { kind: 'market', ticker: selectedAsset };
+  // A finished or cancelled match no longer needs its saved seat, so its "MY MATCH" door goes away.
+  useEffect(() => {
+    if (!wallet.address) return;
+    for (const m of currentMatches) {
+      if (m.status !== 'settled' && m.status !== 'cancelled') continue;
+      if (m.id === arenaId) continue;
+      removePending({ ticker: m.market, number: Number(m.id.split('#')[1]), address: wallet.address as string });
+    }
+  }, [currentMatches, wallet.address, arenaId]);
+
   const worldActive = view === 'world' && live.status === 'ok';
   const panelOpen = view === 'world' && !arenaId && ['matches', 'inspect', 'entry'].includes(screen);
   const mySeats = wallet.address ? getPending().filter((p) => p.address.toLowerCase() === (wallet.address as string).toLowerCase()) : [];
@@ -237,7 +247,7 @@ export default function TugOfWarApp() {
 
           {/* Tug of war room panel */}
           {arenaId && (
-            <div className="absolute left-3 top-3 z-10 w-[min(92vw,22rem)] max-h-[70%] space-y-2 overflow-y-auto">
+            <div data-world-ui className="absolute left-3 top-3 z-10 w-[min(92vw,22rem)] max-h-[70%] space-y-2 overflow-y-auto">
               <button
                 onClick={() => setHudOpen((o) => !o)}
                 className="rounded-lg border border-zinc-700 bg-zinc-900/90 px-3 py-1.5 text-xs font-semibold text-zinc-200"
