@@ -31,11 +31,21 @@ if (!m) throw new Error(`No match ${ticker} #${number} was found. Use one of the
 if (m.status !== 'settled') throw new Error(`Match is ${m.status}, not finished yet.`);
 
 const k = matchKey(ticker, number);
-const [bulls, bears] = (await pub.readContract({ address: escrow, abi: ESCROW_ABI, functionName: 'matches', args: [k] })) as readonly [number, number, bigint, number, bigint];
-// If the escrow roster differs from the order roster, refund everyone rather than pay the wrong people.
-const sameRoster = bulls === m.bulls && bears === m.bears;
-const result = !sameRoster || m.settledResult === 'tie' ? 3 : m.settledResult === 'bulls' ? 1 : 2;
-console.log(`${m.id}: orders ${m.bulls}v${m.bears}, escrow ${bulls}v${bears}, start ${m.startPrice} end ${m.endPrice} -> result ${['', 'Bulls', 'Bears', 'Refund'][result]}`);
+const escrowMatch = (await pub.readContract({ address: escrow, abi: ESCROW_ABI, functionName: 'matches', args: [k] })) as readonly [number, number, bigint, number, bigint];
+const [bulls, bears, startedAt] = escrowMatch;
+// The escrow roster is whoever staked in the trade window. The price decides the winning side.
+if (startedAt === 0n) {
+  const startHash = await wallet.writeContract({ address: escrow, abi: ESCROW_ABI, functionName: 'start', args: [k] });
+  await pub.waitForTransactionReceipt({ hash: startHash });
+  console.log(`Closed staking and started the escrow match. Tx ${startHash}`);
+  const after = (await pub.readContract({ address: escrow, abi: ESCROW_ABI, functionName: 'matches', args: [k] })) as readonly [number, number, bigint, number, bigint];
+  if (after[3] === 3) {
+    console.log('Fewer than 2 stakers or one team only: the escrow marked this match as a refund. Players claim their stake back.');
+    process.exit(0);
+  }
+}
+const result = m.settledResult === 'tie' ? 3 : m.settledResult === 'bulls' ? 1 : 2;
+console.log(`${m.id}: escrow ${bulls}v${bears}, start ${m.startPrice} end ${m.endPrice} -> result ${['', 'Bulls', 'Bears', 'Refund'][result]}`);
 const hash = await wallet.writeContract({ address: escrow, abi: ESCROW_ABI, functionName: 'settle', args: [k, result] });
 await pub.waitForTransactionReceipt({ hash });
 console.log(`Settled. Tx https://explorer.testnet.somnia.network/tokyo/tx/${hash}`);

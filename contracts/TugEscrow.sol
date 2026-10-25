@@ -63,7 +63,18 @@ contract TugEscrow {
         require(token.transferFrom(msg.sender, address(this), stake), "stake transfer");
         uint32 total = m.bulls + m.bears;
         emit Joined(key, msg.sender, side, total);
-        if (total == size) { m.startedAt = uint64(block.timestamp); emit Started(key, m.startedAt); }
+    }
+
+    /// Operator closes the staking window (the trade window of the app) and starts the match. With fewer
+    /// than two players or only one team, nobody plays and every stake can be taken back with `claim`.
+    function start(bytes32 key) external {
+        require(msg.sender == operator, "operator only");
+        Match storage m = matches[key];
+        require(m.startedAt == 0 && m.result == Result.Pending, "already started");
+        require(m.bulls + m.bears > 0, "nobody staked");
+        m.startedAt = uint64(block.timestamp);
+        if (m.bulls + m.bears < 2 || m.bulls == 0 || m.bears == 0) m.result = Result.Refund;
+        emit Started(key, m.startedAt);
     }
 
     /// Before a match starts, a player can take their stake back and give up the seat.

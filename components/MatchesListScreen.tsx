@@ -1,6 +1,7 @@
 'use client';
 
 import { MATCH_SIZE, NOMINAL_STAKE_USD } from '@/lib/gameTag';
+import { matchPull } from '@/lib/matches';
 import React, { useState } from 'react';
 import Image from 'next/image';
 import {
@@ -180,6 +181,7 @@ export const MatchesListScreen: React.FC<MatchesListScreenProps> = ({
             <ThreeTugOfWarArena
               bullsCount={activePreviewMatch.bulls}
               bearsCount={activePreviewMatch.bears}
+              bias={matchPull(activePreviewMatch)?.bias ?? 0}
               marketTicker={market}
               selectedSide={selectedSide}
             />
@@ -232,7 +234,7 @@ export const MatchesListScreen: React.FC<MatchesListScreenProps> = ({
       {/* Matches Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
         {filteredMatches.map((match) => {
-          const isFull = match.total >= MATCH_SIZE;
+          const isFull = match.status !== 'filling';
           const slotsLeft = Math.max(0, MATCH_SIZE - match.total);
           const bullsRatio = Math.round((match.bulls / Math.max(1, match.total)) * 100);
 
@@ -265,7 +267,7 @@ export const MatchesListScreen: React.FC<MatchesListScreenProps> = ({
                   {isFull ? (
                     <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/15 border border-amber-500/30 px-2.5 py-0.5 text-xs font-semibold text-amber-300">
                       <Sparkles className="h-3 w-3" />
-                      <span>{match.status === 'settled' ? `Settled · ${match.settledResult === 'tie' ? 'tie' : match.settledResult + ' won'}` : match.status === 'running' ? 'Running' : `Roster Full (${MATCH_SIZE}/${MATCH_SIZE})`}</span>
+                      <span>{match.status === 'settled' ? `Settled · ${match.settledResult === 'tie' ? 'tie' : match.settledResult + ' won'}` : match.status === 'running' ? 'Running' : match.status === 'opening' ? 'Locked · opening trades' : match.status === 'confirming' ? 'Continue?' : match.status === 'cancelled' ? 'Cancelled' : `Roster Full (${MATCH_SIZE}/${MATCH_SIZE})`}</span>
                     </span>
                   ) : (
                     <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-0.5 text-xs font-semibold text-emerald-400">

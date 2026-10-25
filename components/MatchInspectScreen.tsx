@@ -52,7 +52,7 @@ export const MatchInspectScreen: React.FC<MatchInspectScreenProps> = ({
 
   const pull = matchPull(initialMatch);
   const totalPlayers = bullsCount + bearsCount;
-  const isFull = totalPlayers === CORE_RULES.REQUIRED_PLAYERS;
+  const isFull = ['opening', 'running', 'settled'].includes(initialMatch.status) || totalPlayers === CORE_RULES.REQUIRED_PLAYERS;
   const slotsRemaining = Math.max(0, CORE_RULES.REQUIRED_PLAYERS - totalPlayers);
 
   // Heavily unbalanced condition: signals high volatility when ratio is >= 65% / <= 35% or diff >= 6
@@ -197,7 +197,7 @@ export const MatchInspectScreen: React.FC<MatchInspectScreenProps> = ({
             <ThreeTugOfWarArena
               bullsCount={bullsCount}
               bearsCount={bearsCount}
-              bias={pull?.bias}
+              bias={pull?.bias ?? 0}
               marketTicker={market}
               selectedSide={selectedSide}
             />
@@ -205,7 +205,7 @@ export const MatchInspectScreen: React.FC<MatchInspectScreenProps> = ({
             <TugOfWarRope
               bullsCount={bullsCount}
               bearsCount={bearsCount}
-              bias={pull?.bias}
+              bias={pull?.bias ?? 0}
               biasLabel={pull?.label}
               totalPlayers={totalPlayers}
               highlightSide={selectedSide}
@@ -216,7 +216,7 @@ export const MatchInspectScreen: React.FC<MatchInspectScreenProps> = ({
           <TugOfWarRope
             bullsCount={bullsCount}
             bearsCount={bearsCount}
-            bias={pull?.bias}
+            bias={pull?.bias ?? 0}
             biasLabel={pull?.label}
             totalPlayers={totalPlayers}
             highlightSide={selectedSide}

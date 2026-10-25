@@ -42,6 +42,7 @@ export interface PlayerSlot {
   side: PositionSide;
   joinedAt: string;
   isUser?: boolean;
+  confirmed?: boolean;
 }
 
 export interface GameMatch {
@@ -53,10 +54,14 @@ export interface GameMatch {
   requiredPlayers: number; // always 20
   slotsRemaining: number;
   entryFee: number; // $10
-  status: 'filling' | 'full' | 'running' | 'settled';
+  status: 'filling' | 'confirming' | 'opening' | 'running' | 'settled' | 'cancelled' | 'full';
   playersList?: PlayerSlot[];
   settledResult?: 'bulls' | 'bears' | 'tie';
-  startedAt?: number; // unix seconds: when the last seat was taken
+  lobbyEndsAt?: number; // unix seconds: the lobby closes (if not full)
+  confirmEndsAt?: number; // unix seconds: last moment to say "continue"
+  lockAt?: number; // unix seconds: the roster is fixed
+  tradeEndsAt?: number; // unix seconds: players should have opened their trade; the price clock starts
+  startedAt?: number; // unix seconds: the price clock started (start price taken here)
   endsAt?: number;
   startPrice?: number; // USD, from the market's 1-minute candles at startedAt
   endPrice?: number; // USD at endsAt (only once the match is over)

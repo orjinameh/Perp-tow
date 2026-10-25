@@ -14,6 +14,7 @@ export const ESCROW_ABI = parseAbi([
   'function join(bytes32 key, uint8 side)',
   'function claim(bytes32 key)',
   'function leave(bytes32 key)',
+  'function start(bytes32 key)',
   'function settle(bytes32 key, uint8 result)',
   'function matches(bytes32) view returns (uint32 bulls, uint32 bears, uint64 startedAt, uint8 result, uint256 rakeOwed)',
   'function sideOf(bytes32, address) view returns (uint8)',

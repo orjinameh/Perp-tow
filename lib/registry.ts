@@ -12,15 +12,18 @@ export const registryEnabled = REGISTRY_ADDRESS !== '';
 const ABI = parseAbi([
   'function enter(string market, uint256 matchNumber, uint8 side)',
   'function latestMatch(string market) view returns (uint256)',
-  'function roster(string market, uint256 matchNumber) view returns (address[] players, uint8[] sides, uint64 startedAt)',
+  'function roster(string market, uint256 matchNumber) view returns (address[] players, uint8[] sides, bool[] confirmed, uint64 firstAt, uint64 fullAt)',
+  'function confirm(string market, uint256 matchNumber)',
+  'function leave(string market, uint256 matchNumber)',
 ]);
 
 const pub = () => createPublicClient({ chain: hidekiTestnet, transport: http(RPC) });
 
 export interface RegistryMatch {
   number: number;
-  players: { player: string; side: 1 | 2 }[];
-  startedAt: number; // unix seconds, 0 while the match is still filling
+  players: { player: string; side: 1 | 2; confirmed: boolean }[];
+  firstAt: number; // unix seconds of the first seat
+  fullAt: number; // unix seconds the last seat was taken, 0 while not full
 }
 
 /** Takes a seat. Reverts on chain when the match is full or this wallet is already in it. */
@@ -33,6 +36,7 @@ export async function enterRegistry(key: Hex, ticker: string, matchNumber: numbe
   } catch (e) {
     const err = e as { shortMessage?: string; message?: string };
     const text = err.shortMessage ?? err.message ?? String(e);
+    if (/lobby is closed/i.test(text)) throw new Error('This lobby has closed. Open or join a newer match.');
     if (/other side/i.test(text)) throw new Error('This match needs both teams. Take the other side, or join a different match.');
     if (/full/i.test(text)) throw new Error('This match is already full. Open a new match.');
     if (/already in/i.test(text)) throw new Error('This wallet already has a seat in this match.');
@@ -54,14 +58,38 @@ export async function readMatches(ticker: string): Promise<RegistryMatch[]> {
   for (let n = Math.max(1, latest - WINDOW + 1); n <= latest; n++) numbers.push(n);
   const rows = await Promise.all(
     numbers.map(async (n) => {
-      const [players, sides, startedAt] = (await client.readContract({
+      const [players, sides, confirmed, firstAt, fullAt] = (await client.readContract({
         address: REGISTRY_ADDRESS as Hex,
         abi: ABI,
         functionName: 'roster',
         args: [ticker, BigInt(n)],
-      })) as readonly [readonly Hex[], readonly number[], bigint];
-      return { number: n, players: players.map((p, i) => ({ player: p as string, side: Number(sides[i]) as 1 | 2 })), startedAt: Number(startedAt) };
+      })) as readonly [readonly Hex[], readonly number[], readonly boolean[], bigint, bigint];
+      return {
+        number: n,
+        players: players.map((p, i) => ({ player: p as string, side: Number(sides[i]) as 1 | 2, confirmed: confirmed[i] })),
+        firstAt: Number(firstAt),
+        fullAt: Number(fullAt),
+      };
     }),
   );
   return rows.filter((r) => r.players.length > 0);
 }
+
+async function simpleCall(key: Hex, fn: 'confirm' | 'leave', ticker: string, matchNumber: number): Promise<string> {
+  if (!registryEnabled) throw new Error('The game registry is not set up yet.');
+  const wallet = createWalletClient({ chain: hidekiTestnet, transport: http(RPC), account: privateKeyToAccount(key) });
+  try {
+    const hash = await wallet.writeContract({ address: REGISTRY_ADDRESS as Hex, abi: ABI, functionName: fn, args: [ticker, BigInt(matchNumber)] });
+    const rc = await pub().waitForTransactionReceipt({ hash });
+    if (rc.status !== 'success') throw new Error(`${fn} reverted on chain (${hash}).`);
+    return hash;
+  } catch (e) {
+    const err = e as { shortMessage?: string; message?: string };
+    throw new Error((err.shortMessage ?? err.message ?? String(e)).split('\n')[0]);
+  }
+}
+
+/** "Yes, continue with fewer players." Only valid in the confirm window. */
+export const confirmRegistry = (key: Hex, ticker: string, matchNumber: number) => simpleCall(key, 'confirm', ticker, matchNumber);
+/** Give up the seat while the lobby is open. */
+export const leaveRegistry = (key: Hex, ticker: string, matchNumber: number) => simpleCall(key, 'leave', ticker, matchNumber);

@@ -23,13 +23,15 @@ if (errs.length) throw new Error(errs.map((e) => e.formattedMessage).join('\n'))
 const c = out.contracts['TugRegistry.sol'].TugRegistry;
 
 const size = Number(process.env.NEXT_PUBLIC_MATCH_SIZE) > 1 ? Number(process.env.NEXT_PUBLIC_MATCH_SIZE) : 20;
+const lobby = Number(process.env.NEXT_PUBLIC_LOBBY_SECONDS) > 0 ? Number(process.env.NEXT_PUBLIC_LOBBY_SECONDS) : 300;
+const confirmSecs = Number(process.env.NEXT_PUBLIC_CONFIRM_SECONDS) > 0 ? Number(process.env.NEXT_PUBLIC_CONFIRM_SECONDS) : 60;
 const RPC = 'https://api.hideki2.infra.testnet.somnia.network';
 const wallet = createWalletClient({ account: privateKeyToAccount(key), chain: hidekiTestnet, transport: http(RPC) });
 const pub = createPublicClient({ chain: hidekiTestnet, transport: http(RPC) });
 
-const hash = await wallet.deployContract({ abi: c.abi, bytecode: `0x${c.evm.bytecode.object}`, args: [size] });
+const hash = await wallet.deployContract({ abi: c.abi, bytecode: `0x${c.evm.bytecode.object}`, args: [size, BigInt(lobby), BigInt(confirmSecs)] });
 const rc = await pub.waitForTransactionReceipt({ hash });
-console.log(`Registry deployed for ${size} players per match.`);
+console.log(`Registry deployed: ${size} players per match, lobby ${lobby}s, confirm window ${confirmSecs}s.`);
 console.log(`Tx: https://explorer.testnet.somnia.network/tokyo/tx/${hash}`);
 console.log('Add to .env.local:');
 console.log(`NEXT_PUBLIC_REGISTRY_ADDRESS=${rc.contractAddress}`);

@@ -25,6 +25,7 @@ interface EntryConfirmScreenProps {
   selectedSide: PositionSide;
   match: GameMatch;
   wallet: GameWallet;
+  pool: string;
   onEntered: (receipt: EntryReceipt) => void;
   onBackToInspect: () => void;
 }
@@ -34,6 +35,7 @@ export const EntryConfirmScreen: React.FC<EntryConfirmScreenProps> = ({
   selectedSide,
   match,
   wallet,
+  pool,
   onEntered,
   onBackToInspect,
 }) => {
@@ -42,6 +44,7 @@ export const EntryConfirmScreen: React.FC<EntryConfirmScreenProps> = ({
   const [error, setError] = React.useState<string | null>(null);
 
   // The last seat must not make the roster one-sided.
+  const lobbyClosed = match.status !== 'filling';
   const sideBlocked = match.total === MATCH_SIZE - 1 && (selectedSide === 'bulls' ? match.bears === 0 : match.bulls === 0);
 
   const placeEntry = async () => {
@@ -50,21 +53,14 @@ export const EntryConfirmScreen: React.FC<EntryConfirmScreenProps> = ({
     setError(null);
     try {
       // Loaded only now, in the browser, so the SDK never runs during server rendering.
-      const { enterMatch } = await import('@/lib/trading');
-      const { joinEscrow } = await import('@/lib/escrow');
       const { enterRegistry } = await import('@/lib/registry');
-      // The seat comes first: a full match is refused here, before any order is placed.
-      await enterRegistry(wallet.key, market, Number(match.id.split('#')[1]), selectedSide);
-      // With the escrow switched on, the stake goes in first; if it fails, no order is placed.
-      await joinEscrow(wallet.key, wallet.address as `0x${string}`, market, Number(match.id.split('#')[1]), selectedSide, CORE_RULES.ENTRY_FEE);
-      const receipt = await enterMatch({
-        key: wallet.key,
-        address: wallet.address,
-        ticker: market,
-        side: selectedSide,
-        matchNumber: Number(match.id.split('#')[1]),
-        stakeUsd: CORE_RULES.ENTRY_FEE,
-      });
+      const { addPending } = await import('@/lib/pending');
+      const number = Number(match.id.split('#')[1]);
+      // The seat comes first: a full or closed lobby is refused here.
+      const seatTx = await enterRegistry(wallet.key, market, number, selectedSide);
+      // The real trade is placed automatically when the match locks, by this browser tab.
+      addPending({ ticker: market, pool, number, side: selectedSide, address: wallet.address, placed: false });
+      const receipt: EntryReceipt = { txHash: seatTx, orderId: null, quantity: 0, filledQuantity: 0, price: 0, notionalUsd: 0, raisedToMinimum: false, seatOnly: true };
       soundFx.playEntrySuccess();
       onEntered(receipt);
     } catch (e) {
@@ -201,12 +197,12 @@ export const EntryConfirmScreen: React.FC<EntryConfirmScreenProps> = ({
         <div className="mt-6 flex items-start gap-3 rounded-2xl border border-zinc-800 bg-zinc-950/70 p-4 text-xs text-zinc-400">
           <ShieldAlert className="h-5 w-5 text-amber-400 shrink-0 mt-0.5" />
           <div className="space-y-1">
-            <span className="font-semibold text-zinc-200">This is a real order:</span>
+            <span className="font-semibold text-zinc-200">How this works:</span>
             <p className="leading-relaxed">
-              Confirming sends a market order from your game wallet to the {market}-PERP pool on dreamDEX Hideki testnet, using paper USDso
-              as margin. Your side sets the direction (Bulls = long, Bears = short). The nominal stake is $10; if the market&apos;s
-              minimum order is larger, the minimum is used and shown on your receipt. The order carries this match&apos;s tag, which is how the match is
-              rebuilt from chain data.
+              Confirming takes your seat on chain. Nothing is staked yet: while the lobby is open you can study the chart and leave if you change your mind.
+              At the lock, the same moment for every player, this browser tab puts in your $10 stake (when the escrow is on) and places a real market order from your game wallet to the {market}-PERP pool on dreamDEX Hideki testnet,
+              in the direction you picked (Bulls = long, Bears = short), using paper USDso as margin. Keep this tab open. If the tab is closed through the
+              whole 60-second trade window, you are simply out of the match.
             </p>
             {!wallet.address && (
               <p className="text-amber-300">Create or import a game wallet in the bar at the top of the page first.</p>
@@ -232,12 +228,12 @@ export const EntryConfirmScreen: React.FC<EntryConfirmScreenProps> = ({
           </button>
 
           <button
-            disabled={busy || !wallet.address || match.total >= MATCH_SIZE || sideBlocked}
+            disabled={busy || !wallet.address || match.total >= MATCH_SIZE || sideBlocked || lobbyClosed}
             onClick={placeEntry}
             className="w-full sm:w-auto disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-zinc-950 font-black text-sm py-3.5 px-8 shadow-xl shadow-emerald-500/30 transition-transform hover:scale-[1.02]"
           >
             <Ticket className="h-4 w-4" />
-            <span>{busy ? 'Placing order...' : 'Place real order ($10 stake)'}</span>
+            <span>{busy ? 'Taking your seat...' : 'Take my seat'}</span>
             <ArrowRight className="h-4 w-4" />
           </button>
         </div>

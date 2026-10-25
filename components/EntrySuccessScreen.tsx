@@ -112,6 +112,20 @@ export const EntrySuccessScreen: React.FC<EntrySuccessScreenProps> = ({
               <span className="text-zinc-500">Match Instance:</span>
               <div className="font-bold text-white font-mono">{match.id}</div>
             </div>
+            {receipt.seatOnly ? (
+              <div className="col-span-2 text-zinc-300">
+                Your seat is taken. Your real {selectedSide === 'bulls' ? 'long' : 'short'} trade is placed automatically when the match locks. Keep this browser tab open.
+                {receipt.txHash && (
+                  <>
+                    {' '}·{' '}
+                    <a href={`https://explorer.testnet.somnia.network/tokyo/tx/${receipt.txHash}`} target="_blank" rel="noreferrer" className="text-emerald-400 underline underline-offset-2">
+                      seat transaction
+                    </a>
+                  </>
+                )}
+              </div>
+            ) : (
+              <>
             <div>
               <span className="text-zinc-500">Position opened:</span>
               <div className="font-bold text-white font-mono">
@@ -138,6 +152,8 @@ export const EntrySuccessScreen: React.FC<EntrySuccessScreenProps> = ({
                 </>
               )}
             </div>
+              </>
+            )}
           </div>
         </div>
 

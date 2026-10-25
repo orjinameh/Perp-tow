@@ -32,6 +32,7 @@ export interface EntryReceipt {
   price: number; // limit price sent, USD
   notionalUsd: number;
   raisedToMinimum: boolean; // the nominal stake was below the market's minimum order
+  seatOnly?: boolean; // only a seat was taken: the real order is placed when the match locks
 }
 
 function baseConfig() {

@@ -198,8 +198,6 @@ export const GlobalLobby: React.FC<GlobalLobbyProps> = ({
                   </div>
                 </div>
 
-                </div>
-
                 {/* Market Stats Metadata */}
                 <div className="mt-3 grid grid-cols-2 gap-2 text-[11px] text-zinc-400 border-t border-zinc-800/50 pt-2.5">
                   <div>
