@@ -15,6 +15,7 @@ export interface MatchRecord {
   stakedUsd: number; // what went into the escrow
   netUsd: number | null; // profit (+) or loss (-) from the escrow once the result is known
   claimed: boolean;
+  action: 'claim' | 'leave' | null; // what the player can do with this stake right now
   startedAt: number;
 }
 
@@ -63,13 +64,23 @@ export async function loadMatchHistory(me: string, markets: MarketQueueData[]): 
       const stake = CORE_RULES.ENTRY_FEE;
       let outcome: MatchRecord['outcome'] = 'in progress';
       let net: number | null = null;
-      if (g?.status === 'cancelled') outcome = 'cancelled';
+      let action: MatchRecord['action'] = null;
+      if (g?.status === 'cancelled') {
+        outcome = 'cancelled';
+        if (esc?.joined && esc.startedAt === 0) action = 'leave'; // a stake sitting in a match that never started
+      }
       else if (esc && !esc.joined) outcome = g && ['running', 'settled'].includes(g.status) ? 'not staked' : 'in progress';
       else if (esc && esc.joined) {
-        if (esc.result === 0) outcome = g?.status === 'settled' ? 'waiting for result' : 'in progress';
-        else if (esc.result === 3) {
+        if (esc.result === 0 && esc.startedAt === 0) {
+          // staked, but the escrow was never started: the stake can come straight back
+          const over = !!g && ['running', 'settled'].includes(g.status);
+          outcome = over ? 'waiting for result' : 'in progress';
+          if (over) action = 'leave';
+        } else if (esc.result === 0 && !esc.refundOpen) outcome = g?.status === 'settled' ? 'waiting for result' : 'in progress';
+        else if (esc.result === 3 || esc.result === 0) {
           outcome = 'refund';
           net = 0;
+          if (!esc.claimed) action = 'claim';
         } else {
           const winner = esc.result === 1 ? 'bulls' : 'bears';
           const w = winner === 'bulls' ? esc.bulls : esc.bears;
@@ -77,6 +88,7 @@ export async function loadMatchHistory(me: string, markets: MarketQueueData[]): 
           if (side === winner) {
             outcome = 'won';
             net = (stake * l * (1 - CORE_RULES.RAKE_RATE)) / Math.max(1, w);
+            if (!esc.claimed) action = 'claim';
           } else {
             outcome = 'lost';
             net = -stake;
@@ -95,6 +107,7 @@ export async function loadMatchHistory(me: string, markets: MarketQueueData[]): 
         stakedUsd: esc?.joined ? stake : 0,
         netUsd: net,
         claimed: esc?.claimed ?? false,
+        action,
         startedAt: g?.tradeEndsAt ?? g?.lobbyEndsAt ?? 0,
       });
     }

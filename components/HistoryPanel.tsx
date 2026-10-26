@@ -19,6 +19,8 @@ export const HistoryPanel: React.FC<{ markets: MarketQueueData[]; wallet: GameWa
   const [trades, setTrades] = useState<TradeRecord[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [acting, setActing] = useState<string | null>(null);
+  const [note, setNote] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     if (!wallet.address) return;
@@ -38,6 +40,22 @@ export const HistoryPanel: React.FC<{ markets: MarketQueueData[]; wallet: GameWa
   useEffect(() => {
     load();
   }, [wallet.address]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const act = async (r: MatchRecord) => {
+    if (!wallet.key || !wallet.address || !r.action) return;
+    setActing(r.id);
+    setNote(null);
+    try {
+      const e = await import('@/lib/escrow');
+      const h = await (r.action === 'leave' ? e.leaveEscrow : e.claimEscrow)(wallet.key as `0x${string}`, wallet.address as `0x${string}`, r.ticker, r.number);
+      setNote(`${r.id}: ${r.action === 'leave' ? 'stake returned' : 'payout claimed'}. Tx ${h}`);
+      await load();
+    } catch (err) {
+      setNote(`${r.id}: ${(err instanceof Error ? err.message : String(err)).replace(/\s+/g, ' ')}`);
+    } finally {
+      setActing(null);
+    }
+  };
 
   const net = (matches ?? []).reduce((s, r) => s + (r.netUsd ?? 0), 0);
 
@@ -80,6 +98,8 @@ export const HistoryPanel: React.FC<{ markets: MarketQueueData[]; wallet: GameWa
           </div>
         )}
 
+        {note && <div className="break-words rounded-xl border border-zinc-700 bg-zinc-900 p-3 text-xs text-zinc-200">{note}</div>}
+
         {tab === 'matches' && matches && (
           <div className="space-y-2">
             {matches.length > 0 && (
@@ -99,8 +119,13 @@ export const HistoryPanel: React.FC<{ markets: MarketQueueData[]; wallet: GameWa
                 <div className="font-mono text-zinc-300">{r.stakedUsd ? `staked $${r.stakedUsd}` : 'nothing staked'}</div>
                 <div className="font-mono">
                   {r.netUsd === null ? <span className="text-zinc-500">—</span> : <span className={r.netUsd >= 0 ? 'text-emerald-300' : 'text-rose-300'}>{usd(r.netUsd)}</span>}
-                  {r.outcome === 'won' && <span className="ml-1.5 text-[10px] text-zinc-500">{r.claimed ? 'claimed' : 'to claim'}</span>}
+                  {r.claimed && <span className="ml-1.5 text-[10px] text-zinc-500">claimed</span>}
                 </div>
+                {r.action && (
+                  <button onClick={() => act(r)} disabled={acting !== null} className="col-span-2 rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-500 disabled:opacity-50 sm:col-span-5">
+                    {acting === r.id ? 'Sending…' : r.action === 'leave' ? 'Get my stake back' : r.outcome === 'won' ? 'Claim payout' : 'Claim refund'}
+                  </button>
+                )}
               </div>
             ))}
           </div>

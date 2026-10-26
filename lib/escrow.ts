@@ -19,6 +19,8 @@ export const ESCROW_ABI = parseAbi([
   'function matches(bytes32) view returns (uint32 bulls, uint32 bears, uint64 startedAt, uint8 result, uint256 rakeOwed)',
   'function sideOf(bytes32, address) view returns (uint8)',
   'function claimed(bytes32, address) view returns (bool)',
+  'function duration() view returns (uint64)',
+  'function graceAfter() view returns (uint64)',
 ]);
 const ERC20 = parseAbi(['function approve(address,uint256) returns (bool)', 'function allowance(address,address) view returns (uint256)']);
 
@@ -55,12 +57,18 @@ export async function claimEscrow(key: Hex, address: Hex, ticker: string, matchN
 export async function escrowStatus(ticker: string, matchNumber: number, player: Hex) {
   if (!escrowEnabled) return null;
   const key = matchKey(ticker, matchNumber);
-  const [m, side, done] = await Promise.all([
+  const [m, side, done, dur, grace] = await Promise.all([
     pub().readContract({ address: ESCROW_ADDRESS as Hex, abi: ESCROW_ABI, functionName: 'matches', args: [key] }),
     pub().readContract({ address: ESCROW_ADDRESS as Hex, abi: ESCROW_ABI, functionName: 'sideOf', args: [key, player] }),
     pub().readContract({ address: ESCROW_ADDRESS as Hex, abi: ESCROW_ABI, functionName: 'claimed', args: [key, player] }),
+    pub().readContract({ address: ESCROW_ADDRESS as Hex, abi: ESCROW_ABI, functionName: 'duration' }),
+    pub().readContract({ address: ESCROW_ADDRESS as Hex, abi: ESCROW_ABI, functionName: 'graceAfter' }),
   ]);
-  return { bulls: Number(m[0]), bears: Number(m[1]), result: Number(m[3]), joined: side !== 0, claimed: done };
+  const startedAt = Number(m[2]);
+  const result = Number(m[3]);
+  // The contract opens refunds for a match the operator never settled once this much time has passed.
+  const refundOpen = result === 3 || (result === 0 && startedAt !== 0 && Math.floor(Date.now() / 1000) >= startedAt + Number(dur) + Number(grace));
+  return { bulls: Number(m[0]), bears: Number(m[1]), result, joined: side !== 0, claimed: done, startedAt, refundOpen };
 }
 
 /** Takes the stake back from a match that has not started. */
