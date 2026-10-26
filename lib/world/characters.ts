@@ -210,14 +210,26 @@ export function animateWalk(c: Character, t: number, moving: number) {
   c.group.position.y = Math.abs(Math.sin(t * 10)) * 0.04 * moving;
 }
 
-/** Both arms forward, gripping the rope. `lean` is how hard they pull (0..1). */
-export function pullPose(c: Character, t: number, lean: number, phase: number) {
-  c.armL.rotation.x = -1.35;
-  c.armR.rotation.x = -1.35;
-  c.group.rotation.x = -0.12 - lean * 0.22;
-  c.legL.rotation.x = 0.35;
-  c.legR.rotation.x = -0.25;
-  c.group.position.y = Math.sin(t * 7 + phase) * 0.02 * (0.5 + lean);
+/**
+ * Body of a puller: leans back with effort, plants its feet, and steps when the rope drags the team.
+ * `step` 0..1 is how fast the team is moving; `dragged` means this team is losing ground.
+ */
+export function pullPose(c: Character, t: number, lean: number, phase: number, step = 0, dragged = false) {
+  c.group.rotation.order = 'YXZ';
+  c.group.rotation.x = -0.14 - lean * 0.3 + (dragged ? 0.14 : 0);
+  const s = Math.sin(t * 9 + phase) * 0.55 * step;
+  c.legL.rotation.x = 0.35 + s;
+  c.legR.rotation.x = -0.25 - s;
+  c.group.position.y = Math.abs(Math.sin(t * 9 + phase)) * 0.05 * step + Math.sin(t * 7 + phase) * 0.015 * (0.5 + lean);
+}
+
+/** Points an arm at a spot given in the coordinates of the figure's parent (so the hand grips it). */
+export function aimArm(c: Character, arm: THREE.Object3D, target: THREE.Vector3) {
+  c.group.updateMatrix();
+  const local = target.clone().applyMatrix4(c.group.matrix.clone().invert());
+  const dir = local.sub(arm.position);
+  if (dir.lengthSq() < 1e-6) return;
+  arm.quaternion.setFromUnitVectors(new THREE.Vector3(0, -1, 0), dir.normalize());
 }
 
 export function disposeObject(o: THREE.Object3D) {

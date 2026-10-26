@@ -5,7 +5,7 @@ import * as THREE from 'three';
 import { GameMatch, MarketQueueData, PositionSide } from '@/lib/types';
 import { matchPull } from '@/lib/matches';
 import { MATCH_SIZE } from '@/lib/gameTag';
-import { animateWalk, Character, disposeObject, Form, makeCharacter, pullPose } from '@/lib/world/characters';
+import { aimArm, animateWalk, Character, disposeObject, Form, makeCharacter, pullPose } from '@/lib/world/characters';
 import { clock, makePanel, money, Panel } from '@/lib/world/panel';
 
 export type WorldRoom = { kind: 'hub' } | { kind: 'market'; ticker: string } | { kind: 'arena'; ticker: string };
@@ -514,12 +514,23 @@ export const World3D: React.FC<Props> = (props) => {
       const team = new THREE.Group();
       add(team);
       const ropeLen = w - 5;
-      const rope = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, ropeLen, 12), stdMat(0xc9a66b, 0.9));
-      rope.rotation.z = Math.PI / 2;
-      rope.position.y = 1.15;
-      team.add(rope);
+      // The rope is a chain of points (Verlet): gravity pulls it into a sag, the segments keep their length,
+      // and each hand that grips it holds one point. More effort means less slack, so it tightens and straightens.
+      const N = 64;
+      const seg = ropeLen / (N - 1);
+      const rx = new Float32Array(N);
+      const ry = new Float32Array(N);
+      const ox = new Float32Array(N);
+      const oy = new Float32Array(N);
+      for (let k = 0; k < N; k++) {
+        rx[k] = ox[k] = -ropeLen / 2 + k * seg;
+        ry[k] = oy[k] = 1.3;
+      }
+      const ropeMesh = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.06, 0.06, 1, 8), stdMat(0xc9a66b, 0.95), N - 1);
+      ropeMesh.frustumCulled = false;
+      team.add(ropeMesh);
+      const dummy = new THREE.Object3D();
       const flag = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.5, 0.06), stdMat(0xef4444, 0.5));
-      flag.position.set(0, 0.75, 0);
       team.add(flag);
 
       // seats: one slot per roster entry on each side, in join order
@@ -527,22 +538,24 @@ export const World3D: React.FC<Props> = (props) => {
       const mkPullers = (side: PositionSide) => {
         const sx = side === 'bulls' ? -1 : 1;
         const form: Form = side === 'bulls' ? 'bull' : 'bear';
-        const list: { c: Character; ring: THREE.Mesh; phase: number; baseX: number }[] = [];
+        const list: { c: Character; ring: THREE.Mesh; phase: number; baseX: number; sx: number }[] = [];
         for (let i = 0; i < perSide; i++) {
           const col = Math.floor(i / 2);
           const row = i % 2;
           const x = sx * (2.0 + col * 1.0 + row * 0.45);
-          const z = row === 0 ? -0.55 : 0.55;
+          const z = row === 0 ? -0.45 : 0.45;
           const c = makeCharacter(form);
           c.group.position.set(x, 0, z);
-          c.group.rotation.y = sx < 0 ? Math.PI / 2 : -Math.PI / 2;
+          // facing the other team, turned a little toward the rope so both hands reach it
+          c.group.rotation.order = 'YXZ';
+          c.group.rotation.y = (sx < 0 ? Math.PI / 2 : -Math.PI / 2) + 0.45 * (row === 0 ? 1 : -1) * (sx > 0 ? 1 : -1);
           c.group.visible = false;
           team.add(c.group);
           const ring = new THREE.Mesh(new THREE.RingGeometry(0.28, 0.4, 24), new THREE.MeshBasicMaterial({ color: side === 'bulls' ? 0x10b981 : 0xf43f5e, transparent: true, opacity: 0.35, side: THREE.DoubleSide }));
           ring.rotation.x = -Math.PI / 2;
           ring.position.set(x, 0.03, z);
           team.add(ring);
-          list.push({ c, ring, phase: i * 0.7, baseX: x });
+          list.push({ c, ring, phase: i * 0.7, baseX: x, sx });
         }
         return list;
       };
@@ -562,15 +575,22 @@ export const World3D: React.FC<Props> = (props) => {
       teamLabel(w / 4 + 1, 'BEARS', '#fb7185');
 
       let ropeOffset = 0;
+      let vel = 0;
+      const handTo = new THREE.Vector3();
       frames.push((t, dt) => {
         const m = live.current.match;
         const pull = m ? matchPull(m) : null;
         const bias = pull ? pull.bias : 0; // +1 bulls, -1 bears
         const target = -bias * 3.0;
+        const prev = ropeOffset;
         ropeOffset += (target - ropeOffset) * Math.min(1, dt * 1.6);
         team.position.x = ropeOffset;
+        vel += ((ropeOffset - prev) / Math.max(dt, 1e-3) - vel) * Math.min(1, dt * 6); // smoothed rope speed
         const intensity = m && (m.status === 'running' || m.status === 'full') ? 0.4 + Math.abs(bias) * 0.6 : m && m.status === 'opening' ? 0.25 : 0.12;
+        const stepAmt = Math.min(1, Math.abs(vel) * 2.5);
+
         // who is seated, in join order; my own seat is shown as a ring, I walk around as myself
+        const pins = new Map<number, { y: number }>();
         const place = (side: PositionSide, list: typeof bulls) => {
           const roster = (m?.playersList ?? []).filter((p) => p.side === side);
           const count = roster.length || (m ? (side === 'bulls' ? m.bulls : m.bears) : 0);
@@ -582,12 +602,85 @@ export const World3D: React.FC<Props> = (props) => {
             const mat = s.ring.material as THREE.MeshBasicMaterial;
             mat.opacity = mine ? 0.95 : i < count ? 0.15 : 0.35;
             mat.color.setHex(mine ? 0xfbbf24 : side === 'bulls' ? 0x10b981 : 0xf43f5e);
-            if (filled) pullPose(s.c, t, intensity, s.phase);
+            if (!filled) return;
+            const dragged = vel * -s.sx > 0.05;
+            pullPose(s.c, t, intensity, s.phase, stepAmt, dragged);
+            s.c.group.updateMatrix();
+            // the point of the rope this puller grips: a little toward the middle of the rope
+            const hx = s.baseX - s.sx * 0.42;
+            const idx = Math.max(1, Math.min(N - 2, Math.round((hx + ropeLen / 2) / seg)));
+            pins.set(idx, { y: 1.3 + Math.sin(t * 6 + s.phase) * 0.03 * intensity });
           });
         };
         place('bulls', bulls);
         place('bears', bears);
-        flag.position.y = 0.75 + Math.sin(t * 2) * 0.02;
+
+        // rope step: gravity, then keep every segment about its length, hands hold their points
+        const slack = 1 + 0.07 * (1 - Math.min(1, intensity));
+        const rest = seg * slack;
+        const sub = 2;
+        const h = Math.min(dt, 1 / 30) / sub;
+        for (let s2 = 0; s2 < sub; s2++) {
+          for (let k = 0; k < N; k++) {
+            const pin = pins.get(k);
+            if (pin) {
+              ox[k] = rx[k];
+              oy[k] = ry[k];
+              ry[k] = pin.y;
+              continue;
+            }
+            const vx = (rx[k] - ox[k]) * 0.985;
+            const vy = (ry[k] - oy[k]) * 0.985;
+            ox[k] = rx[k];
+            oy[k] = ry[k];
+            rx[k] += vx;
+            ry[k] += vy - 9.8 * 0.7 * h * h;
+            if (ry[k] < 0.06) ry[k] = 0.06;
+          }
+          for (let it = 0; it < 10; it++) {
+            for (let k = 0; k < N - 1; k++) {
+              const dx = rx[k + 1] - rx[k];
+              const dy = ry[k + 1] - ry[k];
+              const dist = Math.hypot(dx, dy) || 1e-6;
+              const diff = (dist - rest) / dist;
+              const a = pins.has(k);
+              const b = pins.has(k + 1);
+              if (a && b) continue;
+              const wa = a ? 0 : b ? 1 : 0.5;
+              const wb = b ? 0 : a ? 1 : 0.5;
+              rx[k] += dx * diff * wa;
+              ry[k] += dy * diff * wa;
+              rx[k + 1] -= dx * diff * wb;
+              ry[k + 1] -= dy * diff * wb;
+            }
+          }
+        }
+        for (let k = 0; k < N - 1; k++) {
+          const dx = rx[k + 1] - rx[k];
+          const dy = ry[k + 1] - ry[k];
+          dummy.position.set((rx[k] + rx[k + 1]) / 2, (ry[k] + ry[k + 1]) / 2, 0);
+          dummy.rotation.set(0, 0, Math.atan2(dy, dx) - Math.PI / 2);
+          dummy.scale.set(1, Math.hypot(dx, dy) * 1.02, 1);
+          dummy.updateMatrix();
+          ropeMesh.setMatrixAt(k, dummy.matrix);
+        }
+        ropeMesh.instanceMatrix.needsUpdate = true;
+        const mid = N >> 1;
+        flag.position.set(rx[mid], ry[mid] - 0.42, 0);
+
+        // now the hands: each arm reaches for the exact point of rope its owner holds
+        const reach = (list: typeof bulls) =>
+          list.forEach((s) => {
+            if (!s.c.group.visible) return;
+            const hx = s.baseX - s.sx * 0.42;
+            const idx = Math.max(1, Math.min(N - 2, Math.round((hx + ropeLen / 2) / seg)));
+            handTo.set(rx[idx], ry[idx], 0);
+            aimArm(s.c, s.c.armL, handTo);
+            handTo.set(rx[idx] + s.sx * -0.08, ry[idx], 0);
+            aimArm(s.c, s.c.armR, handTo);
+          });
+        reach(bulls);
+        reach(bears);
       });
 
       exitPortal(-w / 2 + 2, d / 2 - 2, 'Leave to the hall', () => live.current.onBackToLobby());
