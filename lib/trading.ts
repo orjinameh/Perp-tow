@@ -187,13 +187,15 @@ export async function enterMatch(args: {
   if (!levDone) {
     try {
       await (ex.trader as unknown as { setPerpLeverage: (p: { pool: Hex; leverageX: number }) => Promise<unknown> }).setPerpLeverage({ pool: m.poolAddress, leverageX: lev });
-      try {
-        localStorage.setItem(levKey, String(lev));
-      } catch {
-        /* ignore */
-      }
     } catch (e) {
-      throw new Error(`Could not set ${lev}x leverage on ${ticker}-PERP: ${e instanceof Error ? e.message.split('\n')[0] : String(e)}`);
+      const text = e instanceof Error ? e.message : String(e);
+      // NoStateChange means the wallet is already at this leverage, which is fine.
+      if (!/NoStateChange/.test(text)) throw new Error(`Could not set ${lev}x leverage on ${ticker}-PERP: ${text.split('\n')[0]}`);
+    }
+    try {
+      localStorage.setItem(levKey, String(lev));
+    } catch {
+      /* ignore */
     }
   }
 
