@@ -877,6 +877,14 @@ export const World3D: React.FC<Props> = (props) => {
       <div className="pointer-events-none absolute bottom-3 left-1/2 hidden -translate-x-1/2 rounded-full bg-black/55 px-3 py-1 text-[11px] text-zinc-300 [@media(pointer:coarse)]:block">
         Left thumb: move · Right thumb: look
       </div>
+      <div className="absolute inset-0 z-30 hidden flex-col items-center justify-center gap-3 bg-zinc-950/95 px-8 text-center [@media(pointer:coarse)_and_(orientation:portrait)_and_(max-width:700px)]:flex">
+        <svg className="h-14 w-14 text-emerald-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <rect x="7" y="3" width="10" height="18" rx="2" />
+          <path d="M20 8c1.5 1 2.5 2.7 2.5 4.5M4 16c-1.5-1-2.5-2.7-2.5-4.5" />
+        </svg>
+        <div className="text-base font-bold text-white">Turn your phone sideways</div>
+        <p className="text-xs text-zinc-400">The 3D world plays best in landscape. Rotate your device, or switch to the classic screens from the top bar.</p>
+      </div>
       <div
         ref={stickBase}
         className="pointer-events-none absolute h-28 w-28 rounded-full border border-white/25 bg-white/10 transition-opacity"

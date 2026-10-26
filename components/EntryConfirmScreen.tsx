@@ -215,7 +215,7 @@ export const EntryConfirmScreen: React.FC<EntryConfirmScreenProps> = ({
               <p className="text-amber-300">Create or import a game wallet in the bar at the top of the page first.</p>
             )}
             {match.total >= MATCH_SIZE && (
-              <p className="text-amber-300">This match already has 20 players. Open a new match instead.</p>
+              <p className="text-amber-300">This match already has {MATCH_SIZE} players. Open a new match instead.</p>
             )}
             {sideBlocked && <p className="text-amber-300">This match needs both teams, and only one seat is left. Pick the other side or join another match.</p>}
             {error && <p className="text-rose-300">Entry failed: {error}</p>}

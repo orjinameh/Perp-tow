@@ -135,7 +135,7 @@ export const MatchInspectScreen: React.FC<MatchInspectScreenProps> = ({
                 : 'border-emerald-500/30 bg-emerald-500/10 text-emerald-400'
             }`}
           >
-            {isFull ? 'Roster Full (20/20)' : `${slotsRemaining} Slots Open`}
+            {isFull ? `Roster Full (${MATCH_SIZE}/${MATCH_SIZE})` : `${slotsRemaining} Slots Open`}
           </div>
         </div>
       </div>
@@ -320,7 +320,7 @@ export const MatchInspectScreen: React.FC<MatchInspectScreenProps> = ({
                 </span>
               </div>
               <h3 className="text-xl font-bold text-white">
-                Payout Estimates Are Hidden Until Match Reaches 20/20
+                Payout Estimates Are Hidden Until Match Reaches {MATCH_SIZE}/{MATCH_SIZE}
               </h3>
               <p className="text-sm text-zinc-400 leading-relaxed max-w-3xl">
                 Because every winning player’s payout depends strictly on the final locked ratio of winning vs losing players (<span className="text-zinc-200 font-mono">P = e + (1 - r)eL / W</span>), the algorithm does not display premature payout quotes while seats remain open.
@@ -392,7 +392,7 @@ export const MatchInspectScreen: React.FC<MatchInspectScreenProps> = ({
               <div>
                 <div className="flex items-center gap-2">
                   <span className="text-xs font-bold uppercase tracking-wider text-emerald-400">
-                    Step 6 — Roster Full (20/20)
+                    Step 6 — Roster Full ({MATCH_SIZE}/{MATCH_SIZE})
                   </span>
                   <span className="text-xs text-zinc-500">·</span>
                   <span className="text-xs text-zinc-400 font-mono">${CORE_RULES.ENTRY_FEE * CORE_RULES.REQUIRED_PLAYERS} Total Pool</span>

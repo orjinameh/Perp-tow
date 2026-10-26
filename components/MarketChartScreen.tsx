@@ -1,5 +1,6 @@
 'use client';
 
+import { MATCH_SIZE } from '@/lib/gameTag';
 import React, { useState } from 'react';
 import Image from 'next/image';
 import {
@@ -268,7 +269,7 @@ export const MarketChartScreen: React.FC<MarketChartScreenProps> = ({
             </div>
             <div className="text-right">
               <div className="text-xs text-zinc-400">Required Size</div>
-              <div className="text-base font-bold text-white font-mono">20 Players</div>
+              <div className="text-base font-bold text-white font-mono">{MATCH_SIZE} Players</div>
             </div>
           </div>
         </div>

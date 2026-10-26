@@ -209,7 +209,14 @@ export default function TugOfWarApp() {
 
       {/* Dynamic Screen Viewport */}
       {worldActive && (
-        <div className="relative h-[calc(100dvh-9rem)] min-h-[460px] w-full">
+        <div className="relative h-[calc(100dvh-9rem)] min-h-[460px] w-full [@media(pointer:coarse)_and_(orientation:landscape)_and_(max-height:520px)]:fixed [@media(pointer:coarse)_and_(orientation:landscape)_and_(max-height:520px)]:inset-0 [@media(pointer:coarse)_and_(orientation:landscape)_and_(max-height:520px)]:z-40 [@media(pointer:coarse)_and_(orientation:landscape)_and_(max-height:520px)]:h-auto [@media(pointer:coarse)_and_(orientation:landscape)_and_(max-height:520px)]:min-h-0">
+          <button
+            data-world-ui
+            onClick={() => switchView('classic')}
+            className="absolute right-3 top-3 z-10 hidden rounded-lg border border-zinc-700 bg-zinc-900/90 px-3 py-1.5 text-xs font-semibold text-zinc-200 [@media(pointer:coarse)_and_(orientation:landscape)_and_(max-height:520px)]:block"
+          >
+            Classic view
+          </button>
           <World3D
             room={room}
             markets={live.markets}
@@ -418,7 +425,7 @@ export default function TugOfWarApp() {
           <div className="flex items-center gap-2">
             <span className="font-semibold text-zinc-400">Tug of War</span>
             <span>·</span>
-            <span>20-Player Long vs Short Crypto Game Prototype</span>
+            <span>{MATCH_SIZE}-Player Long vs Short game on dreamDEX perps</span>
           </div>
           <div className="flex items-center gap-4 text-[11px] text-zinc-400">
             <span>$10 Fixed Stake</span>

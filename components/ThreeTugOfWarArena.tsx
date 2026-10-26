@@ -1,5 +1,6 @@
 'use client';
 
+import { MATCH_SIZE } from '@/lib/gameTag';
 import React, { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
@@ -701,7 +702,7 @@ export const ThreeTugOfWarArena: React.FC<ThreeTugOfWarArenaProps> = ({
           <div className="truncate">
             <div className="text-[11px] sm:text-xs font-bold text-white flex items-center gap-1.5 truncate">
               <span className="truncate">{marketTicker} Arena</span>
-              <span className="text-[9px] sm:text-[10px] text-zinc-500 font-mono hidden xs:inline">20-Player</span>
+              <span className="text-[9px] sm:text-[10px] text-zinc-500 font-mono hidden xs:inline">{MATCH_SIZE}-Player</span>
             </div>
             <div className="text-[9px] sm:text-[10px] text-zinc-400 font-mono truncate">
               <span className={bullsCount >= bearsCount ? 'text-emerald-400 font-semibold' : 'text-rose-400 font-semibold'}>{leadSide}</span> ({pullDistance}m pull)

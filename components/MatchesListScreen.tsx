@@ -127,7 +127,7 @@ export const MatchesListScreen: React.FC<MatchesListScreenProps> = ({
                 : 'text-zinc-400 hover:text-zinc-200'
             }`}
           >
-            Full (20/20 Demo)
+            Full ({MATCH_SIZE}/{MATCH_SIZE})
           </button>
         </div>
       </div>
@@ -141,11 +141,11 @@ export const MatchesListScreen: React.FC<MatchesListScreenProps> = ({
                 <Box className="h-3.5 w-3.5" />
               </div>
               <span className="text-xs font-bold uppercase tracking-wider text-white">
-                Live 3D Arena: Ongoing Match Pulling Simulation
+                3D preview of the selected match
               </span>
               <span className="text-xs text-zinc-500">·</span>
               <span className="text-xs text-zinc-400 font-mono">
-                {activePreviewMatch.id} ({activePreviewMatch.bulls} Bulls vs {activePreviewMatch.bears} Bears)
+                {activePreviewMatch.id} ({activePreviewMatch.bulls} Bulls vs {activePreviewMatch.bears} Bears) · {activePreviewMatch.status === 'settled' ? `finished, ${activePreviewMatch.settledResult === 'tie' ? 'tie' : `${activePreviewMatch.settledResult} won`}` : activePreviewMatch.status}
               </span>
             </div>
 
@@ -195,7 +195,7 @@ export const MatchesListScreen: React.FC<MatchesListScreenProps> = ({
         <Info className="h-4 w-4 text-emerald-400 shrink-0 mt-0.5" />
         <p>
           <strong className="text-zinc-200">Algorithm Rule: </strong>
-          Matches start when {MATCH_SIZE} players have joined ($10 stake each). Total players <span className="font-mono text-zinc-300">N = B + S</span>, remaining slots = <span className="font-mono text-zinc-300">{MATCH_SIZE} - N</span>. Payout estimates are hidden for matches with a partly filled roster and become visible once the roster is full.
+          A lobby opens when the first player sits ({MATCH_SIZE} seats, $10 stake each, nothing is staked while you wait). If it fills, the match locks at once. If not, when the lobby time ends everyone is asked to continue with fewer players (at least 2, with both teams present). The winner is the side that called the price direction right, not the side with more players.
         </p>
       </div>
 
