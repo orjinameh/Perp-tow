@@ -156,6 +156,9 @@ export const World3D: React.FC<Props> = (props) => {
 
     const pos = new THREE.Vector2(0, 5);
     let facing = Math.PI;
+    // my own seat on the rope: while I have not walked away from it, I stand there and pull
+    let seatSpot: { x: number; z: number; face: number } | null = null;
+    let unseated = false;
     let moving = 0;
 
     // Per-room state, rebuilt on every room change.
@@ -596,7 +599,9 @@ export const World3D: React.FC<Props> = (props) => {
           const count = roster.length || (m ? (side === 'bulls' ? m.bulls : m.bears) : 0);
           list.forEach((s, i) => {
             const mine = roster[i]?.isUser === true;
-            const filled = i < count && !mine;
+            if (mine && unseated && Math.hypot(pos.x - (s.baseX + team.position.x), pos.y - s.c.group.position.z) < 0.7) unseated = false; // walked back to the seat
+            const filled = i < count && !(mine && unseated);
+            if (mine && !unseated) seatSpot = { x: s.baseX + team.position.x, z: s.c.group.position.z, face: s.c.group.rotation.y };
             s.c.group.visible = filled;
             s.ring.visible = true;
             const mat = s.ring.material as THREE.MeshBasicMaterial;
@@ -856,7 +861,14 @@ export const World3D: React.FC<Props> = (props) => {
         iz = rz;
       }
       const len = Math.hypot(ix, iz);
-      if (len > 0.01) {
+      const spot = seatSpot;
+      seatSpot = null; // set again every frame by the arena while I am seated
+      if (spot && !unseated && len > 0.01) unseated = true;
+      if (spot && !unseated) {
+        pos.set(spot.x, spot.z);
+        facing = spot.face;
+        moving = Math.max(0, moving - dt * 8);
+      } else if (len > 0.01) {
         const k = Math.min(1, len) / len;
         let nx = pos.x + ix * k * SPEED * dt;
         let nz = pos.y + iz * k * SPEED * dt;
@@ -882,6 +894,7 @@ export const World3D: React.FC<Props> = (props) => {
         moving = Math.max(0, moving - dt * 8);
       }
       avatarRoot.position.set(pos.x, 0, pos.y);
+      avatar.group.visible = !(spot && !unseated); // my own puller on the rope stands in for me
       avatar.group.rotation.y = facing;
       animateWalk(avatar, tAll, moving);
 

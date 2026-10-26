@@ -85,7 +85,12 @@ async function simpleCall(key: Hex, fn: 'confirm' | 'leave', ticker: string, mat
     return hash;
   } catch (e) {
     const err = e as { shortMessage?: string; message?: string };
-    throw new Error((err.shortMessage ?? err.message ?? String(e)).split('\n')[0]);
+    const text = err.shortMessage ?? err.message ?? String(e);
+    if (/lobby still open/i.test(text)) throw new Error('The lobby is still open on the chain. Wait a few seconds and try again.');
+    if (/confirm window closed/i.test(text)) throw new Error('The confirm window has closed.');
+    if (/not in this match/i.test(text)) throw new Error('This wallet has no seat in this match.');
+    if (/match is full/i.test(text)) throw new Error('The match is full, so no confirmation is needed.');
+    throw new Error(text.replace(/\s+/g, ' ').trim());
   }
 }
 
