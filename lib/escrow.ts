@@ -67,7 +67,7 @@ export async function escrowStatus(ticker: string, matchNumber: number, player: 
   const startedAt = Number(m[2]);
   const result = Number(m[3]);
   // The contract opens refunds for a match the operator never settled once this much time has passed.
-  const refundOpen = result === 3 || (result === 0 && startedAt !== 0 && Math.floor(Date.now() / 1000) >= startedAt + Number(dur) + Number(grace));
+  const refundOpen = result === 3 || (result === 0 && startedAt !== 0 && (await import('./clock')).nowSec() >= startedAt + Number(dur) + Number(grace));
   return { bulls: Number(m[0]), bears: Number(m[1]), result, joined: side !== 0, claimed: done, startedAt, refundOpen };
 }
 

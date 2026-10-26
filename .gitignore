@@ -6,6 +6,4 @@ coverage/
 .env*
 !.env.example
 repro-claim-key.txt
-repro-claim.txt repro-claim-key.txt
-repro-claim-key.txt
 repro-claim.txt

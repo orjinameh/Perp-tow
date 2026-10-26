@@ -95,6 +95,8 @@ contract TugEscrow {
         Match storage m = matches[key];
         require(m.startedAt != 0 && m.result == Result.Pending, "not settleable");
         require(block.timestamp >= m.startedAt + duration, "still running");
+        // once refunds have opened a result can no longer be posted, or early refunds and payouts could exceed the pool
+        require(block.timestamp < m.startedAt + duration + graceAfter, "refund window open");
         require(result != Result.Pending, "result");
         if (m.bulls == 0 || m.bears == 0) result = Result.Refund;
         m.result = result;

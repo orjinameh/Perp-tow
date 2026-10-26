@@ -239,7 +239,7 @@ export const EntryConfirmScreen: React.FC<EntryConfirmScreenProps> = ({
           </div>
         </div>
 
-        {/* Prototype Demo Disclaimer Banner */}
+        {/* How entering works */}
         <div className="mt-6 flex items-start gap-3 rounded-2xl border border-zinc-800 bg-zinc-950/70 p-4 text-xs text-zinc-400">
           <ShieldAlert className="h-5 w-5 text-amber-400 shrink-0 mt-0.5" />
           <div className="space-y-1">

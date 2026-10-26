@@ -150,7 +150,7 @@ export default function TugOfWarApp() {
     setScreen('entry');
   };
 
-  // Step 7 -> Step 8: Confirm demo entry
+  // Step 7 -> Step 8: seat taken
   const handleEntered = (r: EntryReceipt) => {
     setReceipt(r);
     matchState.reload();

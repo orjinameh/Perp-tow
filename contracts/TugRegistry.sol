@@ -37,6 +37,8 @@ contract TugRegistry {
     function enter(string calldata market, uint256 matchNumber, uint8 side) external {
         require(side == 1 || side == 2, "side");
         require(matchNumber >= 1, "match number");
+        // numbers run in order: nobody can jump the counter far ahead and hide every real match from the lists
+        require(matchNumber <= _latest[keccak256(bytes(market))] + 1, "match number too high");
         bytes32 key = keccak256(abi.encode(market, matchNumber));
         require(!inMatch[key][msg.sender], "already in this match");
         require(_seats[key].length < size, "match is full");
