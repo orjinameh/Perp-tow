@@ -7,6 +7,7 @@ import { calculatePayout, CORE_RULES } from '@/lib/payout';
 import { useGameWallet } from '@/lib/useGameWallet';
 import { Spinner } from '@/components/ProgressModal';
 import { useProgress } from '@/lib/useProgress';
+import { MiniChart } from '@/components/MiniChart';
 
 const usd = (n: number) => `$${n.toLocaleString(undefined, { maximumFractionDigits: n < 1 ? 6 : 2 })}`;
 const clock = (s: number) => `${Math.floor(Math.max(0, s) / 60)}:${String(Math.max(0, s) % 60).padStart(2, '0')}`;
@@ -245,6 +246,7 @@ export const MatchStatusPanel: React.FC<{ match: GameMatch }> = ({ match }) => {
   const progress = useProgress();
   return (
     <>
+      {['filling', 'confirming', 'opening', 'running', 'full'].includes(match.status) && <MiniChart ticker={match.market} startPrice={match.startPrice} />}
       <Inner match={match} progress={progress} />
       {progress.modal}
     </>

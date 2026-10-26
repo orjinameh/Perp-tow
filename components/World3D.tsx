@@ -43,6 +43,61 @@ const FOOT = 0.42;
 
 const stdMat = (color: number, rough = 0.8) => new THREE.MeshStandardMaterial({ color, roughness: rough, metalness: 0.05 });
 
+function drawMarketChart(c: CanvasRenderingContext2D, cw: number, ch: number, m: MarketQueueData | null) {
+    c.fillStyle = '#0a1020';
+    c.fillRect(0, 0, cw, ch);
+    c.textBaseline = 'alphabetic';
+    if (!m || m.candles.length < 2) {
+      c.fillStyle = '#94a3b8';
+      c.font = '48px system-ui, sans-serif';
+      c.textAlign = 'center';
+      c.fillText('No candle data from the indexer yet', cw / 2, ch / 2);
+      return;
+    }
+    const stride = Math.max(1, Math.floor(m.candles.length / 320));
+    const pts = m.candles.filter((_, i) => i % stride === 0 || i === m.candles.length - 1).map((k) => k.close);
+    const lo = Math.min(...pts);
+    const hi = Math.max(...pts);
+    const padX = 90;
+    const top = 210;
+    const bottom = ch - 70;
+    c.strokeStyle = '#1e293b';
+    c.lineWidth = 2;
+    for (let g = 0; g <= 4; g++) {
+      const y = top + ((bottom - top) * g) / 4;
+      c.beginPath();
+      c.moveTo(padX, y);
+      c.lineTo(cw - padX, y);
+      c.stroke();
+      c.fillStyle = '#64748b';
+      c.font = '30px system-ui, sans-serif';
+      c.textAlign = 'left';
+      c.fillText(money(hi - ((hi - lo) * g) / 4), padX + 8, y - 8);
+    }
+    const up = pts[pts.length - 1] >= pts[0];
+    const col = up ? '#34d399' : '#fb7185';
+    c.strokeStyle = col;
+    c.lineWidth = 5;
+    c.lineJoin = 'round';
+    c.beginPath();
+    pts.forEach((v, i) => {
+      const x = padX + ((cw - padX * 2) * i) / (pts.length - 1);
+      const y = bottom - ((v - lo) / (hi - lo || 1)) * (bottom - top);
+      if (i === 0) c.moveTo(x, y);
+      else c.lineTo(x, y);
+    });
+    c.stroke();
+    c.fillStyle = '#f8fafc';
+    c.font = 'bold 84px system-ui, sans-serif';
+    c.textAlign = 'left';
+    c.fillText(`${m.ticker}-PERP`, padX, 105);
+    c.fillStyle = col;
+    c.fillText(money(m.price), padX + 560, 105);
+    c.font = '40px system-ui, sans-serif';
+    c.fillStyle = '#94a3b8';
+    c.fillText(`${m.priceChange24h >= 0 ? '+' : ''}${m.priceChange24h.toFixed(2)}% over the last 24h of candles   |   24h high ${money(m.high24h)}   low ${money(m.low24h)}`, padX, 165);
+}
+
 /**
  * The walkable game: a hub with one door per market, a market room (chart wall, side counter)
  * and the tug of war room. Everything it shows comes from the same live data as the classic screens.
@@ -289,61 +344,7 @@ export const World3D: React.FC<Props> = (props) => {
 
       // chart wall
       slab(10.4, 4.9, 0.2, 0x1e293b, 0, 3.3, -d / 2 + 0.12);
-      const chart = sign(10, 4.5, 1536, (c, cw, ch) => {
-        const m = getM();
-        c.fillStyle = '#0a1020';
-        c.fillRect(0, 0, cw, ch);
-        c.textBaseline = 'alphabetic';
-        if (!m || m.candles.length < 2) {
-          c.fillStyle = '#94a3b8';
-          c.font = '48px system-ui, sans-serif';
-          c.textAlign = 'center';
-          c.fillText('No candle data from the indexer yet', cw / 2, ch / 2);
-          return;
-        }
-        const stride = Math.max(1, Math.floor(m.candles.length / 320));
-        const pts = m.candles.filter((_, i) => i % stride === 0 || i === m.candles.length - 1).map((k) => k.close);
-        const lo = Math.min(...pts);
-        const hi = Math.max(...pts);
-        const padX = 90;
-        const top = 210;
-        const bottom = ch - 70;
-        c.strokeStyle = '#1e293b';
-        c.lineWidth = 2;
-        for (let g = 0; g <= 4; g++) {
-          const y = top + ((bottom - top) * g) / 4;
-          c.beginPath();
-          c.moveTo(padX, y);
-          c.lineTo(cw - padX, y);
-          c.stroke();
-          c.fillStyle = '#64748b';
-          c.font = '30px system-ui, sans-serif';
-          c.textAlign = 'left';
-          c.fillText(money(hi - ((hi - lo) * g) / 4), padX + 8, y - 8);
-        }
-        const up = pts[pts.length - 1] >= pts[0];
-        const col = up ? '#34d399' : '#fb7185';
-        c.strokeStyle = col;
-        c.lineWidth = 5;
-        c.lineJoin = 'round';
-        c.beginPath();
-        pts.forEach((v, i) => {
-          const x = padX + ((cw - padX * 2) * i) / (pts.length - 1);
-          const y = bottom - ((v - lo) / (hi - lo || 1)) * (bottom - top);
-          if (i === 0) c.moveTo(x, y);
-          else c.lineTo(x, y);
-        });
-        c.stroke();
-        c.fillStyle = '#f8fafc';
-        c.font = 'bold 84px system-ui, sans-serif';
-        c.textAlign = 'left';
-        c.fillText(`${m.ticker}-PERP`, padX, 105);
-        c.fillStyle = col;
-        c.fillText(money(m.price), padX + 560, 105);
-        c.font = '40px system-ui, sans-serif';
-        c.fillStyle = '#94a3b8';
-        c.fillText(`${m.priceChange24h >= 0 ? '+' : ''}${m.priceChange24h.toFixed(2)}% over the last 24h of candles   |   24h high ${money(m.high24h)}   low ${money(m.low24h)}`, padX, 165);
-      }, 0, 3.3, -d / 2 + 0.25);
+      const chart = sign(10, 4.5, 1536, (c, cw, ch) => drawMarketChart(c, cw, ch, getM()), 0, 3.3, -d / 2 + 0.25);
       let lastSig = '';
       ticks.push(() => {
         const m = getM();
@@ -439,7 +440,7 @@ export const World3D: React.FC<Props> = (props) => {
       }
 
       // the board on the north wall
-      const board = sign(12, 3.4, 1536, (c, cw, ch) => {
+      const board = sign(9.6, 3.4, 1536, (c, cw, ch) => {
         const m = live.current.match;
         c.fillStyle = '#0a1020';
         c.fillRect(0, 0, cw, ch);
@@ -492,8 +493,22 @@ export const World3D: React.FC<Props> = (props) => {
         c.fillText(`BULLS ${m.bulls}`, cw * 0.22, ch - 100);
         c.fillStyle = '#fb7185';
         c.fillText(`BEARS ${m.bears}`, cw * 0.78, ch - 100);
-      }, 0, 3.3, -d / 2 + 0.1);
+      }, -5.3, 3.3, -d / 2 + 0.1);
       ticks.push(() => board.redraw());
+
+      // the live chart beside it: this is the analysis time, so the market is on the wall
+      const getArenaMarket = () => live.current.markets.find((x) => x.ticker === ticker) ?? null;
+      slab(10.2, 3.9, 0.2, 0x1e293b, 5.3, 3.3, -d / 2 + 0.05);
+      const arenaChart = sign(9.8, 3.5, 1536, (c, cw, ch) => drawMarketChart(c, cw, ch, getArenaMarket()), 5.3, 3.3, -d / 2 + 0.2);
+      let arenaSig = '';
+      ticks.push(() => {
+        const m = getArenaMarket();
+        const sig = m ? `${m.price}|${m.candles.length}|${m.candles[m.candles.length - 1]?.close}` : 'none';
+        if (sig !== arenaSig) {
+          arenaSig = sig;
+          arenaChart.redraw();
+        }
+      });
 
       // rope + the teams hang off one group so they move together
       const team = new THREE.Group();
