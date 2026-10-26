@@ -7,7 +7,7 @@ import { Swords, Volume2, VolumeX, BookOpen, RotateCcw } from 'lucide-react';
 import { PrototypeScreen } from '@/lib/types';
 import { soundFx } from '@/lib/sound';
 import { ThemeToggle } from '@/components/ThemeToggle';
-import { Box } from 'lucide-react';
+import { Box, Trophy } from 'lucide-react';
 
 interface NavbarProps {
   currentScreen: PrototypeScreen;
@@ -17,6 +17,7 @@ interface NavbarProps {
   onToggleMute: () => void;
   view?: 'world' | 'classic';
   onToggleView?: () => void;
+  onOpenLeaders?: () => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -27,6 +28,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   onToggleMute,
   view,
   onToggleView,
+  onOpenLeaders,
 }) => {
   return (
     <header className="sticky top-0 z-40 w-full border-b border-zinc-800/80 bg-zinc-950/90 backdrop-blur-md">
@@ -78,6 +80,15 @@ export const Navbar: React.FC<NavbarProps> = ({
 
         {/* Zone 3: 1 primary action & controls */}
         <div className="flex items-center gap-2.5 shrink-0">
+          {onOpenLeaders && (
+            <button
+              onClick={onOpenLeaders}
+              className="flex h-9 items-center gap-1.5 rounded-lg border border-zinc-800 bg-zinc-900/80 px-2.5 text-xs font-semibold text-zinc-300 transition-colors hover:border-zinc-700 hover:text-white"
+            >
+              <Trophy className="h-4 w-4 text-amber-400" />
+              <span className="hidden sm:inline">Leaders</span>
+            </button>
+          )}
           {onToggleView && (
             <button
               onClick={onToggleView}

@@ -6,6 +6,8 @@ import dynamic from 'next/dynamic';
 import { getPending, removePending } from '@/lib/pending';
 import type { WorldRoom } from '@/components/World3D';
 import { MatchStatusPanel } from '@/components/MatchStatusPanel';
+import { LeadersPanel } from '@/components/LeadersPanel';
+import { useCopyTrade } from '@/lib/useCopyTrade';
 import {
   CryptoAsset,
   GameMatch,
@@ -46,6 +48,8 @@ export default function TugOfWarApp() {
   const [receipt, setReceipt] = useState<EntryReceipt | null>(null);
   const wallet = useGameWallet();
   const autoTradeNote = useAutoTrade(wallet);
+  const copy = useCopyTrade(wallet);
+  const [leadersOpen, setLeadersOpen] = useState(false);
 
   // 3D world or the classic screens. The 3D world drives the very same state and screens.
   const [view, setView] = useState<'world' | 'classic'>('world');
@@ -189,6 +193,7 @@ export default function TugOfWarApp() {
         onToggleMute={handleToggleMute}
         view={view}
         onToggleView={() => switchView(view === 'world' ? 'classic' : 'world')}
+        onOpenLeaders={live.status === 'ok' ? () => setLeadersOpen(true) : undefined}
       />
 
       <WalletPanel wallet={wallet} />
@@ -196,6 +201,15 @@ export default function TugOfWarApp() {
         <div className="border-b border-amber-500/30 bg-amber-950/30 px-4 py-2 text-center text-xs text-amber-200">{autoTradeNote}</div>
       )}
 
+      {copy.follow && (
+        <div className="border-b border-emerald-500/30 bg-emerald-950/30 px-4 py-2 text-center text-xs text-emerald-200">
+          Copying {copy.follow.leader.slice(0, 6)}…{copy.follow.leader.slice(-4)} on {copy.follow.ticker}
+          {copy.leaderNow ? ` · they are ${copy.leaderNow}` : ''}
+          {copy.events[0] ? ` · ${copy.events[0].text.slice(0, 90)}` : ''}{' '}
+          <button onClick={() => copy.stop()} className="ml-2 underline">Stop</button>
+        </div>
+      )}
+      {leadersOpen && live.status === 'ok' && <LeadersPanel markets={live.markets} wallet={wallet} copy={copy} onClose={() => setLeadersOpen(false)} />}
       {worldNote && <div className="border-b border-rose-500/30 bg-rose-950/30 px-4 py-2 text-center text-xs text-rose-200">{worldNote}</div>}
 
       {/* Step Flow Ribbon Indicator */}

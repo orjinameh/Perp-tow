@@ -322,3 +322,13 @@ export async function hasOpenPosition(key: Hex, address: Hex, ticker: string): P
   const preview = (await ex.client.previewPerpClosePnl({ pool: m.poolAddress, marginBank: m.marginBank, account: address })) as unknown as { closedQuantity: bigint };
   return preview.closedQuantity > 0n;
 }
+
+/** Which way this wallet's position on a market points right now. */
+export async function myDirection(key: Hex, address: Hex, ticker: string): Promise<'long' | 'short' | 'flat'> {
+  if (!(await hasOpenPosition(key, address, ticker))) return 'flat';
+  const ex = makeExchange(key);
+  const positions = (await (ex as unknown as { fetchPositions: () => Promise<{ symbol: string; side: string }[]> }).fetchPositions()) ?? [];
+  const mine = positions.find((p) => p.symbol.toUpperCase().startsWith(ticker.toUpperCase()));
+  if (!mine) throw new Error(`Could not read the side of your ${ticker} position.`);
+  return mine.side === 'long' ? 'long' : 'short';
+}
