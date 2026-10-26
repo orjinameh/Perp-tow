@@ -71,7 +71,17 @@ export const EntryConfirmScreen: React.FC<EntryConfirmScreenProps> = ({
       }
       // The seat comes first: a full or closed lobby is refused here.
       advance(0);
-      const seatTx = await enterRegistry(wallet.key as string, market, number, selectedSide);
+      let seatTx: string | null;
+      try {
+        seatTx = await enterRegistry(wallet.key as string, market, number, selectedSide);
+      } catch (e) {
+        // A brand-new match whose number was taken meanwhile: read the chain again and take the next free one once.
+        if (match.total !== 0 || !/closed|full/i.test(String((e as Error).message))) throw e;
+        const { readMatches } = await import('@/lib/registry');
+        const rows = await readMatches(market);
+        number = Math.max(number, rows.reduce((mx, r) => Math.max(mx, r.number), 0)) + 1;
+        seatTx = await enterRegistry(wallet.key as string, market, number, selectedSide);
+      }
       advance(1);
       // The real trade is placed automatically when the match locks, by this browser tab.
       addPending({ ticker: market, pool, number, side: selectedSide, address: wallet.address as string, placed: false, leverage });
