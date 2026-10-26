@@ -213,7 +213,7 @@ export const MatchesListScreen: React.FC<MatchesListScreenProps> = ({
                   }}
                   className="flex items-center gap-1.5 rounded-lg bg-zinc-800 hover:bg-emerald-600 text-white font-medium px-3.5 py-1.5 text-xs transition-colors shrink-0"
                 >
-                  <span>Join this match</span>
+                  <span>{match.playersList?.some((p) => p.isUser) ? 'Return to your seat' : 'Join this match'}</span>
                   <ArrowRight className="h-3 w-3" />
                 </button>
               </div>

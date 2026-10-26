@@ -3,7 +3,7 @@
 import { LobbySkeleton } from '@/components/Skeleton';
 import React, { useEffect, useState } from 'react';
 import dynamic from 'next/dynamic';
-import { getPending, removePending } from '@/lib/pending';
+import { addPending, getPending, removePending } from '@/lib/pending';
 import type { WorldRoom } from '@/components/World3D';
 import { MatchStatusPanel } from '@/components/MatchStatusPanel';
 import { LeadersPanel } from '@/components/LeadersPanel';
@@ -23,7 +23,7 @@ import type { EntryReceipt } from '@/lib/trading';
 import { WalletPanel } from '@/components/WalletPanel';
 import { useAutoTrade } from '@/lib/useAutoTrade';
 import { CORE_RULES } from '@/lib/payout';
-import { MATCH_SIZE } from '@/lib/gameTag';
+import { MATCH_SIZE, LEVERAGE as LEVERAGE_DEFAULT } from '@/lib/gameTag';
 import { soundFx } from '@/lib/sound';
 import { Navbar } from '@/components/Navbar';
 import { FlowBreadcrumbs } from '@/components/FlowBreadcrumbs';
@@ -128,6 +128,18 @@ export default function TugOfWarApp() {
 
   // Step 4: Display & Select match
   const handleSelectMatch = (match: GameMatch) => {
+    // Already seated on chain (walked out of the room, or reloaded): go back to the seat, never re-enter.
+    const mine = match.playersList?.find((p) => p.isUser);
+    if (mine && wallet.address) {
+      const number = Number(match.id.split('#')[1]);
+      const have = getPending().some((p) => p.ticker === match.market && p.number === number && p.address.toLowerCase() === (wallet.address as string).toLowerCase());
+      if (!have) addPending({ ticker: match.market, pool: currentMarket?.pool ?? '', number, side: mine.side, address: wallet.address as string, placed: false, leverage: LEVERAGE_DEFAULT });
+      setSelectedMatch(match);
+      setSelectedSide(mine.side);
+      if (view === 'world') setArenaId(match.id);
+      setScreen('done');
+      return;
+    }
     setSelectedMatch(match);
     setScreen('entry');
   };
