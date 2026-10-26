@@ -1,19 +1,8 @@
 'use client';
 
-import { MATCH_SIZE } from '@/lib/gameTag';
-
 import React, { useState } from 'react';
-import {
-  X,
-  BookOpen,
-  Calculator,
-  ShieldAlert,
-  ShieldCheck,
-  CheckCircle2,
-  AlertTriangle,
-  Layers,
-  ArrowRight,
-} from 'lucide-react';
+import { X, BookOpen } from 'lucide-react';
+import { MATCH_SIZE, LOBBY_SECONDS, CONFIRM_SECONDS, TRADE_SECONDS, MATCH_DURATION_SEC } from '@/lib/gameTag';
 import { calculatePayout, CORE_RULES } from '@/lib/payout';
 import { soundFx } from '@/lib/sound';
 
@@ -22,48 +11,37 @@ interface AlgorithmSafeguardsModalProps {
   onClose: () => void;
 }
 
-export const AlgorithmSafeguardsModal: React.FC<AlgorithmSafeguardsModalProps> = ({
-  isOpen,
-  onClose,
-}) => {
-  const [activeTab, setActiveTab] = useState<'flow' | 'math' | 'limitations' | 'safeguards'>('flow');
+const mins = (s: number) => (s % 60 === 0 ? `${s / 60} min` : `${s} s`);
+const usd = (n: number) => `$${n.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
 
-  // Interactive sandbox for the formula tab (defaults to matched 10 Bulls vs 10 Bears)
-  const [sandboxBulls, setSandboxBulls] = useState<number>(Math.floor(MATCH_SIZE / 2));
-  const sandboxBears = Math.max(1, MATCH_SIZE - sandboxBulls);
-
-  const sandboxBullsWin = calculatePayout({
-    entryFee: 10,
-    winnerCount: sandboxBulls,
-    loserCount: sandboxBears,
-    rake: 0.20,
-  });
-
-  const sandboxBearsWin = calculatePayout({
-    entryFee: 10,
-    winnerCount: sandboxBears,
-    loserCount: sandboxBulls,
-    rake: 0.20,
-  });
-
+/** The rules of the game, written from the same settings the game itself runs on. */
+export const AlgorithmSafeguardsModal: React.FC<AlgorithmSafeguardsModalProps> = ({ isOpen, onClose }) => {
+  const [bulls, setBulls] = useState(Math.max(1, Math.floor(MATCH_SIZE / 2)));
   if (!isOpen) return null;
+  const bears = Math.max(1, MATCH_SIZE - bulls);
+  const ifBulls = calculatePayout({ entryFee: CORE_RULES.ENTRY_FEE, winnerCount: bulls, loserCount: bears, rake: CORE_RULES.RAKE_RATE });
+  const ifBears = calculatePayout({ entryFee: CORE_RULES.ENTRY_FEE, winnerCount: bears, loserCount: bulls, rake: CORE_RULES.RAKE_RATE });
+
+  const steps = [
+    `Pick a perp market and a side: Bulls (long) or Bears (short). Take a seat in a lobby. Nothing is staked yet.`,
+    `The lobby stays open for ${mins(LOBBY_SECONDS)} after its first player. Study the chart. A match of ${MATCH_SIZE} locks the moment it is full and needs both teams.`,
+    `If the lobby ends short of full, the players who are in get ${mins(CONFIRM_SECONDS)} to say "continue with fewer players". Anyone who does not answer is out. If either team ends up empty, the match is cancelled.`,
+    `At the lock, for ${TRADE_SECONDS} seconds, every player's tab stakes ${usd(CORE_RULES.ENTRY_FEE)} USDso in the escrow and places a real market order on the dreamDEX perp pool, long for Bulls and short for Bears, at the leverage the player chose.`,
+    `The price clock then runs for ${mins(MATCH_DURATION_SEC)}. If the market's price is higher at the end than at the start, Bulls win. If it is lower, Bears win. An exact tie is a refund.`,
+    `Winners claim their stake back plus a share of the losing pool. Losers lose their stake. If the result is never posted, everyone can reclaim their stake.`,
+  ];
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-zinc-950/80 backdrop-blur-md overflow-y-auto">
-      <div className="relative w-full max-w-4xl rounded-3xl border border-zinc-800 bg-zinc-900 shadow-2xl overflow-hidden my-8">
-        {/* Modal Header */}
-        <div className="flex items-center justify-between border-b border-zinc-800/80 px-6 py-4 bg-zinc-950/50">
+    <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-zinc-950/80 p-3 backdrop-blur-md sm:p-5">
+      <div className="relative my-8 w-full max-w-2xl overflow-hidden rounded-3xl border border-zinc-800 bg-zinc-900 shadow-2xl">
+        <div className="flex items-center justify-between border-b border-zinc-800/80 bg-zinc-950/50 px-6 py-4">
           <div className="flex items-center gap-3">
-            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl border border-emerald-500/30 bg-emerald-500/10 text-emerald-400">
               <BookOpen className="h-4 w-4" />
             </div>
             <div>
-              <h2 className="text-base font-bold text-white">
-                Tug of War: Prototype Algorithm Specification
-              </h2>
-              <p className="text-xs text-zinc-400">
-                Full documentation of rules, 8-step flow, math formulas, and production safeguards
-              </p>
+              <h2 className="text-base font-bold text-white">How Perp Tug of War works</h2>
+              <p className="text-xs text-zinc-400">The rules, the payout and what to trust</p>
             </div>
           </div>
           <button
@@ -71,351 +49,58 @@ export const AlgorithmSafeguardsModal: React.FC<AlgorithmSafeguardsModalProps> =
               soundFx.playClick();
               onClose();
             }}
-            className="flex h-8 w-8 items-center justify-center rounded-lg border border-zinc-800 bg-zinc-900 text-zinc-400 hover:text-white transition-colors"
+            className="rounded-lg p-2 text-zinc-400 hover:bg-zinc-800 hover:text-white"
+            aria-label="Close"
           >
             <X className="h-4 w-4" />
           </button>
         </div>
 
-        {/* Tab Navigation */}
-        <div className="flex items-center gap-1 border-b border-zinc-800/80 px-6 py-2.5 bg-zinc-950/30 overflow-x-auto text-xs">
-          <button
-            onClick={() => {
-              soundFx.playClick();
-              setActiveTab('flow');
-            }}
-            className={`px-3 py-1.5 rounded-lg transition-colors whitespace-nowrap ${
-              activeTab === 'flow' ? 'bg-zinc-800 text-emerald-400 font-semibold' : 'text-zinc-400 hover:text-zinc-200'
-            }`}
-          >
-            1. Player Flow (8 Steps)
-          </button>
-          <button
-            onClick={() => {
-              soundFx.playClick();
-              setActiveTab('math');
-            }}
-            className={`px-3 py-1.5 rounded-lg transition-colors whitespace-nowrap ${
-              activeTab === 'math' ? 'bg-zinc-800 text-emerald-400 font-semibold' : 'text-zinc-400 hover:text-zinc-200'
-            }`}
-          >
-            2. Payout Math & Sandbox
-          </button>
-          <button
-            onClick={() => {
-              soundFx.playClick();
-              setActiveTab('limitations');
-            }}
-            className={`px-3 py-1.5 rounded-lg transition-colors whitespace-nowrap ${
-              activeTab === 'limitations' ? 'bg-zinc-800 text-emerald-400 font-semibold' : 'text-zinc-400 hover:text-zinc-200'
-            }`}
-          >
-            3. Prototype vs Production
-          </button>
-          <button
-            onClick={() => {
-              soundFx.playClick();
-              setActiveTab('safeguards');
-            }}
-            className={`px-3 py-1.5 rounded-lg transition-colors whitespace-nowrap ${
-              activeTab === 'safeguards' ? 'bg-zinc-800 text-emerald-400 font-semibold' : 'text-zinc-400 hover:text-zinc-200'
-            }`}
-          >
-            4. Production Safeguards
-          </button>
-        </div>
+        <div className="space-y-6 p-6 text-sm text-zinc-300">
+          <ol className="space-y-2.5">
+            {steps.map((t, i) => (
+              <li key={i} className="flex gap-3">
+                <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-emerald-500/15 text-xs font-bold text-emerald-300">{i + 1}</span>
+                <span className="leading-relaxed">{t}</span>
+              </li>
+            ))}
+          </ol>
 
-        {/* Modal Body */}
-        <div className="p-6 max-h-[70vh] overflow-y-auto space-y-6 text-xs text-zinc-300">
-          {activeTab === 'flow' && (
-            <div className="space-y-4">
-              <h3 className="text-sm font-bold text-white uppercase tracking-wider text-emerald-400">
-                Complete 8-Step Algorithmic Player Flow
-              </h3>
-              <div className="space-y-3">
-                <div className="p-3.5 rounded-xl border border-zinc-800 bg-zinc-950/40">
-                  <span className="font-bold text-white">Step 1 — Initialize Application (Global Lobby)</span>
-                  <p className="text-zinc-400 mt-1">
-                    Displays supported markets (every live dreamDEX perp market) with real prices, 24h change, and global waiting queues (Bulls/Bears counts searching for matches).
-                  </p>
-                </div>
-                <div className="p-3.5 rounded-xl border border-zinc-800 bg-zinc-950/40">
-                  <span className="font-bold text-white">Step 2 — Select Market</span>
-                  <p className="text-zinc-400 mt-1">
-                    Stores chosen asset, displays price & interactive chart. User inspects technicals before making their directional decision.
-                  </p>
-                </div>
-                <div className="p-3.5 rounded-xl border border-zinc-800 bg-zinc-950/40">
-                  <span className="font-bold text-white">Step 3 — Choose Bulls or Bears</span>
-                  <p className="text-zinc-400 mt-1">
-                    Bulls = Long position (expects price to rise); Bears = Short position (expects price to fall). Selected side is recorded.
-                  </p>
-                </div>
-                <div className="p-3.5 rounded-xl border border-zinc-800 bg-zinc-950/40">
-                  <span className="font-bold text-white">Step 4 — Display Available Matches</span>
-                  <p className="text-zinc-400 mt-1">
-                    Calculates total players <code className="text-emerald-400 font-mono">N = B + S</code> and remaining slots <code className="text-emerald-400 font-mono">20 - N</code> for each match instance.
-                  </p>
-                </div>
-                <div className="p-3.5 rounded-xl border border-zinc-800 bg-zinc-950/40">
-                  <span className="font-bold text-white">Step 5 — Inspect a Match & Capacity Check</span>
-                  <p className="text-zinc-400 mt-1">
-                    If the roster is not full: displays composition & remaining slots, and <strong>hides payout estimates</strong>. If the roster is full: activates payout calculator.
-                  </p>
-                </div>
-                <div className="p-3.5 rounded-xl border border-zinc-800 bg-zinc-950/40">
-                  <span className="font-bold text-white">Step 6 — Calculate Payout When Full (20 Players)</span>
-                  <p className="text-zinc-400 mt-1">
-                    Takes entry fee $e = $10$, rake rate $r = 20\%$, winners $W$, losers $L$. Payout per winner is <code className="text-emerald-400 font-mono">P = e + (1 - r)eL / W</code>.
-                  </p>
-                </div>
-                <div className="p-3.5 rounded-xl border border-zinc-800 bg-zinc-950/40">
-                  <span className="font-bold text-white">Step 7 — Continue to Entry Screen</span>
-                  <p className="text-zinc-400 mt-1">
-                    Reviews market, position, match ID, entry fee, and locked payout estimate (if full).
-                  </p>
-                </div>
-                <div className="p-3.5 rounded-xl border border-zinc-800 bg-zinc-950/40">
-                  <span className="font-bold text-white">Step 8 — Demo Confirmation</span>
-                  <p className="text-zinc-400 mt-1">
-                    Confirms local prototype entry, issues receipt ticket, and lets the player return to the global lobby.
-                  </p>
-                </div>
+          <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/5 p-4 text-xs leading-relaxed text-emerald-100">
+            <b>The result never depends on head count or leverage.</b> Only the price direction decides who wins. Leverage only changes the size of your own real position.
+          </div>
+
+          <div className="space-y-3 rounded-2xl border border-zinc-800 bg-zinc-950/60 p-4">
+            <div className="flex items-center justify-between">
+              <h3 className="font-bold text-white">Payout calculator</h3>
+              <span className="font-mono text-[11px] text-zinc-500">payout = stake + {(1 - CORE_RULES.RAKE_RATE) * 100}% × stake × losers ÷ winners</span>
+            </div>
+            <label className="flex items-center gap-3 text-xs text-zinc-400">
+              Bulls in a full match of {MATCH_SIZE}
+              <input type="range" min={1} max={Math.max(1, MATCH_SIZE - 1)} value={bulls} onChange={(e) => setBulls(Number(e.target.value))} className="flex-1 accent-emerald-500" />
+              <span className="font-mono text-white">{bulls} v {bears}</span>
+            </label>
+            <div className="grid grid-cols-2 gap-3 text-xs">
+              <div className="rounded-xl border border-zinc-800 p-3">
+                <div className="font-semibold text-emerald-300">If Bulls win</div>
+                <div className="mt-1 font-mono text-white">{ifBulls ? usd(ifBulls.payoutPerWinner) : '—'} each</div>
+                <div className="text-zinc-500">profit {ifBulls ? usd(ifBulls.netProfitPerWinner) : '—'}</div>
+              </div>
+              <div className="rounded-xl border border-zinc-800 p-3">
+                <div className="font-semibold text-rose-300">If Bears win</div>
+                <div className="mt-1 font-mono text-white">{ifBears ? usd(ifBears.payoutPerWinner) : '—'} each</div>
+                <div className="text-zinc-500">profit {ifBears ? usd(ifBears.netProfitPerWinner) : '—'}</div>
               </div>
             </div>
-          )}
+            <p className="text-[11px] text-zinc-500">{CORE_RULES.RAKE_RATE * 100}% of the losing pool is the rake and stays in the escrow for the operator. This is a calculator, not a result.</p>
+          </div>
 
-          {activeTab === 'math' && (
-            <div className="space-y-5">
-              <div className="p-4 rounded-2xl border border-emerald-500/30 bg-emerald-950/20 space-y-2">
-                <h4 className="font-bold text-emerald-400 text-sm">Step 6 Mathematical Formulas</h4>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-zinc-300 font-mono">
-                  <div className="bg-zinc-950/70 p-2.5 rounded-lg border border-zinc-800">
-                    <span className="text-zinc-500 block text-[10px]">Losing Pool</span>
-                    <code>Losing Pool = e × L</code>
-                  </div>
-                  <div className="bg-zinc-950/70 p-2.5 rounded-lg border border-zinc-800">
-                    <span className="text-zinc-500 block text-[10px]">Platform Rake (20%)</span>
-                    <code>Rake = r × e × L</code>
-                  </div>
-                  <div className="bg-zinc-950/70 p-2.5 rounded-lg border border-zinc-800">
-                    <span className="text-zinc-500 block text-[10px]">Redistributed Pool</span>
-                    <code>Redistributed = (1 - r) × e × L</code>
-                  </div>
-                  <div className="bg-zinc-950/70 p-2.5 rounded-lg border border-zinc-800">
-                    <span className="text-zinc-500 block text-[10px]">Winning Payout per Player</span>
-                    <code>P = e + (1 - r)·e·L / W</code>
-                  </div>
-                </div>
-              </div>
-
-              {/* Interactive Math Sandbox */}
-              <div className="p-4 rounded-2xl border border-zinc-800 bg-zinc-950 space-y-3">
-                <div className="flex items-center justify-between">
-                  <h4 className="font-bold text-white text-sm">Interactive Payout Sandbox (20 Players Total)</h4>
-                  <span className="text-xs font-mono text-zinc-400">
-                    {sandboxBulls} Bulls vs {sandboxBears} Bears
-                  </span>
-                </div>
-
-                <div className="space-y-1">
-                  <label className="text-[11px] text-zinc-400 flex justify-between">
-                    <span>Adjust Team Composition:</span>
-                    <span>{sandboxBulls} Bulls / {sandboxBears} Bears</span>
-                  </label>
-                  <input
-                    type="range"
-                    min="1"
-                    max={MATCH_SIZE - 1}
-                    value={sandboxBulls}
-                    onChange={(e) => setSandboxBulls(parseInt(e.target.value))}
-                    className="w-full accent-emerald-500"
-                  />
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4 pt-2">
-                  <div className="p-3 rounded-xl border border-emerald-500/30 bg-emerald-950/20">
-                    <div className="font-bold text-emerald-400">If Bulls Win ({sandboxBulls} winners):</div>
-                    <div className="mt-1 space-y-0.5 text-[11px]">
-                      <div>Losing Pool: <span className="font-mono">${sandboxBullsWin?.losingPool}</span></div>
-                      <div>Rake (20%): <span className="font-mono">-${sandboxBullsWin?.platformRake.toFixed(2)}</span></div>
-                      <div className="font-bold text-white pt-1">
-                        Payout: <span className="text-emerald-400 font-mono">${sandboxBullsWin?.payoutPerWinner.toFixed(2)}</span>
-                      </div>
-                      <div className="text-zinc-400">
-                        Net Profit: <span className="font-mono">+${sandboxBullsWin?.netProfitPerWinner.toFixed(2)} (+{sandboxBullsWin?.roiPercentage.toFixed(0)}%)</span>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="p-3 rounded-xl border border-rose-500/30 bg-rose-950/20">
-                    <div className="font-bold text-rose-400">If Bears Win ({sandboxBears} winners):</div>
-                    <div className="mt-1 space-y-0.5 text-[11px]">
-                      <div>Losing Pool: <span className="font-mono">${sandboxBearsWin?.losingPool}</span></div>
-                      <div>Rake (20%): <span className="font-mono">-${sandboxBearsWin?.platformRake.toFixed(2)}</span></div>
-                      <div className="font-bold text-white pt-1">
-                        Payout: <span className="text-rose-400 font-mono">${sandboxBearsWin?.payoutPerWinner.toFixed(2)}</span>
-                      </div>
-                      <div className="text-zinc-400">
-                        Net Profit: <span className="font-mono">+${sandboxBearsWin?.netProfitPerWinner.toFixed(2)} (+{sandboxBearsWin?.roiPercentage.toFixed(0)}%)</span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {activeTab === 'limitations' && (
-            <div className="space-y-4">
-              <h3 className="text-sm font-bold text-white uppercase tracking-wider text-emerald-400">
-                Section 4: Current Prototype vs Production Requirements
-              </h3>
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-xs border border-zinc-800 rounded-xl overflow-hidden">
-                  <thead className="bg-zinc-950 text-zinc-400 uppercase font-mono text-[10px]">
-                    <tr>
-                      <th className="p-3">Area</th>
-                      <th className="p-3">Current Prototype</th>
-                      <th className="p-3">Production Requirement</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-zinc-800">
-                    <tr className="hover:bg-zinc-800/30">
-                      <td className="p-3 font-semibold text-white">Global lobby</td>
-                      <td className="p-3 text-zinc-400">Hardcoded market counts</td>
-                      <td className="p-3 text-emerald-400">Live, authoritative queue counts</td>
-                    </tr>
-                    <tr className="hover:bg-zinc-800/30">
-                      <td className="p-3 font-semibold text-white">Market prices</td>
-                      <td className="p-3 text-zinc-400">Live dreamDEX data</td>
-                      <td className="p-3 text-emerald-400">Live price feed with timestamps</td>
-                    </tr>
-                    <tr className="hover:bg-zinc-800/30">
-                      <td className="p-3 font-semibold text-white">Match list</td>
-                      <td className="p-3 text-zinc-400">Hardcoded examples</td>
-                      <td className="p-3 text-emerald-400">Persistent matches & real membership</td>
-                    </tr>
-                    <tr className="hover:bg-zinc-800/30">
-                      <td className="p-3 font-semibold text-white">Team composition</td>
-                      <td className="p-3 text-zinc-400">Local UI state</td>
-                      <td className="p-3 text-emerald-400">Backend-authoritative player counts</td>
-                    </tr>
-                    <tr className="hover:bg-zinc-800/30">
-                      <td className="p-3 font-semibold text-white">Match capacity</td>
-                      <td className="p-3 text-zinc-400">Displayed as 20 players</td>
-                      <td className="p-3 text-emerald-400">Atomic enforcement of 20-player limit</td>
-                    </tr>
-                    <tr className="hover:bg-zinc-800/30">
-                      <td className="p-3 font-semibold text-white">Payout visibility</td>
-                      <td className="p-3 text-zinc-400">Hidden below 20 players</td>
-                      <td className="p-3 text-emerald-400">Backend also refuses premature quotes</td>
-                    </tr>
-                    <tr className="hover:bg-zinc-800/30">
-                      <td className="p-3 font-semibold text-white">Entry confirmation</td>
-                      <td className="p-3 text-zinc-400">Demo state change</td>
-                      <td className="p-3 text-emerald-400">Idempotent entry & confirmed result</td>
-                    </tr>
-                    <tr className="hover:bg-zinc-800/30">
-                      <td className="p-3 font-semibold text-white">Funds</td>
-                      <td className="p-3 text-zinc-400">No real funds</td>
-                      <td className="p-3 text-emerald-400">Actual payment, escrow & settlement</td>
-                    </tr>
-                    <tr className="hover:bg-zinc-800/30">
-                      <td className="p-3 font-semibold text-white">Match outcome</td>
-                      <td className="p-3 text-zinc-400">Not implemented</td>
-                      <td className="p-3 text-emerald-400">Defined price oracle & timestamps</td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
-
-          {activeTab === 'safeguards' && (
-            <div className="space-y-4">
-              <h3 className="text-sm font-bold text-white uppercase tracking-wider text-emerald-400">
-                Section 5: Production Safeguards Required Before Real-Money Play
-              </h3>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="p-4 rounded-xl border border-zinc-800 bg-zinc-950/50 space-y-1">
-                  <div className="flex items-center gap-2 font-bold text-white">
-                    <ShieldCheck className="h-4 w-4 text-emerald-400" />
-                    <span>Prevent Overfilling</span>
-                  </div>
-                  <p className="text-zinc-400">
-                    Two players must not both claim the 20th slot. Match admission needs an atomic capacity check with mutex or transaction locking.
-                  </p>
-                </div>
-
-                <div className="p-4 rounded-xl border border-zinc-800 bg-zinc-950/50 space-y-1">
-                  <div className="flex items-center gap-2 font-bold text-white">
-                    <ShieldCheck className="h-4 w-4 text-emerald-400" />
-                    <span>Prevent Duplicate Entries</span>
-                  </div>
-                  <p className="text-zinc-400">
-                    Retrying an entry request must use idempotent tokens to prevent charging or registering the same player twice.
-                  </p>
-                </div>
-
-                <div className="p-4 rounded-xl border border-zinc-800 bg-zinc-950/50 space-y-1">
-                  <div className="flex items-center gap-2 font-bold text-white">
-                    <ShieldCheck className="h-4 w-4 text-emerald-400" />
-                    <span>Define the Entry Lock</span>
-                  </div>
-                  <p className="text-zinc-400">
-                    The system must establish the exact instant the roster becomes immutable and what happens if a downstream transaction fails.
-                  </p>
-                </div>
-
-                <div className="p-4 rounded-xl border border-zinc-800 bg-zinc-950/50 space-y-1">
-                  <div className="flex items-center gap-2 font-bold text-white">
-                    <ShieldCheck className="h-4 w-4 text-emerald-400" />
-                    <span>Freeze Payout Inputs</span>
-                  </div>
-                  <p className="text-zinc-400">
-                    Calculate payouts strictly using final locked team counts ($W$ and $L$), never counts read at different times.
-                  </p>
-                </div>
-
-                <div className="p-4 rounded-xl border border-zinc-800 bg-zinc-950/50 space-y-1">
-                  <div className="flex items-center gap-2 font-bold text-white">
-                    <ShieldCheck className="h-4 w-4 text-emerald-400" />
-                    <span>Define Match Outcomes</span>
-                  </div>
-                  <p className="text-zinc-400">
-                    Specify the cryptographic price oracle (Chainlink/Pyth), opening & closing timestamps, and explicit tie handling.
-                  </p>
-                </div>
-
-                <div className="p-4 rounded-xl border border-zinc-800 bg-zinc-950/50 space-y-1">
-                  <div className="flex items-center gap-2 font-bold text-white">
-                    <ShieldCheck className="h-4 w-4 text-emerald-400" />
-                    <span>Handle Unmatched Demand</span>
-                  </div>
-                  <p className="text-zinc-400">
-                    If a match cannot fill within a defined window, players must receive clean refunds or voluntary migration—never silent reassignment.
-                  </p>
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Modal Footer */}
-        <div className="border-t border-zinc-800 px-6 py-4 bg-zinc-950/50 flex items-center justify-between">
-          <span className="text-xs text-zinc-500 font-mono">
-            Tug of War Prototype Spec v1.0
-          </span>
-          <button
-            onClick={() => {
-              soundFx.playClick();
-              onClose();
-            }}
-            className="px-4 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-white font-medium text-xs transition-colors"
-          >
-            Close Documentation
-          </button>
+          <div className="space-y-1.5 text-xs leading-relaxed text-zinc-400">
+            <h3 className="text-sm font-bold text-white">What to trust</h3>
+            <p>Seats and stakes are held by contracts on the Somnia Hideki testnet. The seat registry holds no money. The escrow holds the stakes and pays them out.</p>
+            <p>The escrow operator posts the final result, computed from public dreamDEX candle data. It cannot take stakes, only the rake of a settled match. If it never posts a result, every player can reclaim their stake after a grace period.</p>
+            <p>The game wallet is created in this browser for the testnet only. Do not put a key that holds real funds into it.</p>
+          </div>
         </div>
       </div>
     </div>
