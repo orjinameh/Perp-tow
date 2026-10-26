@@ -7,6 +7,7 @@ export interface PendingEntry {
   side: 'bulls' | 'bears';
   address: string;
   placed: boolean;
+  leverage?: number; // the player's own choice; only sizes their real position
 }
 const KEY = 'tow.pending';
 

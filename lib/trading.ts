@@ -141,8 +141,10 @@ export async function enterMatch(args: {
   side: PositionSide;
   matchNumber: number;
   stakeUsd: number;
+  leverage?: number; // defaults to the game's default; never affects who wins
 }): Promise<EntryReceipt> {
   const { key, address, ticker, side, matchNumber, stakeUsd } = args;
+  const lev = args.leverage ?? LEVERAGE;
   const account = address; // the game wallet always trades its own account
   const ex = makeExchange(key);
   const rows = (await ex.client.listPerpMarkets()) as unknown as PerpRow[];
@@ -161,7 +163,7 @@ export async function enterMatch(args: {
   const slipped = isBid ? (mark * (10_000n + SLIPPAGE_BPS)) / 10_000n : (mark * (10_000n - SLIPPAGE_BPS)) / 10_000n;
   const price = tick > 0n ? (slipped / tick) * tick : slipped;
   // The stake is the margin; the position is the stake times the game's leverage.
-  const stake18 = BigInt(Math.round(stakeUsd * LEVERAGE * 1e6)) * 10n ** 12n;
+  const stake18 = BigInt(Math.round(stakeUsd * lev * 1e6)) * 10n ** 12n;
   let quantity = (stake18 * 10n ** dec) / mark;
   quantity = lot > 0n ? (quantity / lot) * lot : quantity;
   let raisedToMinimum = false;
@@ -171,23 +173,23 @@ export async function enterMatch(args: {
   }
 
   // Same leverage for every player. Set once per wallet and market, then remembered in this browser.
-  const levKey = `tow.lev.${m.poolAddress}.${account}.${LEVERAGE}`;
+  const levKey = `tow.lev.${m.poolAddress}.${account}`;
   let levDone = false;
   try {
-    levDone = localStorage.getItem(levKey) === '1';
+    levDone = localStorage.getItem(levKey) === String(lev);
   } catch {
     /* storage unavailable: set it again */
   }
   if (!levDone) {
     try {
-      await (ex.trader as unknown as { setPerpLeverage: (p: { pool: Hex; leverageX: number }) => Promise<unknown> }).setPerpLeverage({ pool: m.poolAddress, leverageX: LEVERAGE });
+      await (ex.trader as unknown as { setPerpLeverage: (p: { pool: Hex; leverageX: number }) => Promise<unknown> }).setPerpLeverage({ pool: m.poolAddress, leverageX: lev });
       try {
-        localStorage.setItem(levKey, '1');
+        localStorage.setItem(levKey, String(lev));
       } catch {
         /* ignore */
       }
     } catch (e) {
-      throw new Error(`Could not set ${LEVERAGE}x leverage on ${ticker}-PERP: ${e instanceof Error ? e.message.split('\n')[0] : String(e)}`);
+      throw new Error(`Could not set ${lev}x leverage on ${ticker}-PERP: ${e instanceof Error ? e.message.split('\n')[0] : String(e)}`);
     }
   }
 

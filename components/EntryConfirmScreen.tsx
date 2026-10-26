@@ -2,7 +2,7 @@
 
 import { Spinner } from '@/components/ProgressModal';
 import { useProgress } from '@/lib/useProgress';
-import { MATCH_SIZE, NOMINAL_STAKE_USD } from '@/lib/gameTag';
+import { LEVERAGE, LEVERAGE_OPTIONS, MATCH_SIZE, NOMINAL_STAKE_USD } from '@/lib/gameTag';
 import React from 'react';
 import Image from 'next/image';
 import {
@@ -44,6 +44,7 @@ export const EntryConfirmScreen: React.FC<EntryConfirmScreenProps> = ({
   const isFull = match.total === MATCH_SIZE;
   const [busy, setBusy] = React.useState(false);
   const progress = useProgress();
+  const [leverage, setLeverage] = React.useState<number>(LEVERAGE);
   const [error, setError] = React.useState<string | null>(null);
 
   // The last seat must not make the roster one-sided.
@@ -64,7 +65,7 @@ export const EntryConfirmScreen: React.FC<EntryConfirmScreenProps> = ({
       const seatTx = await enterRegistry(wallet.key as string, market, number, selectedSide);
       advance(1);
       // The real trade is placed automatically when the match locks, by this browser tab.
-      addPending({ ticker: market, pool, number, side: selectedSide, address: wallet.address as string, placed: false });
+      addPending({ ticker: market, pool, number, side: selectedSide, address: wallet.address as string, placed: false, leverage });
       return seatTx;
     });
     setBusy(false);
@@ -160,6 +161,25 @@ export const EntryConfirmScreen: React.FC<EntryConfirmScreenProps> = ({
             <div className="text-base font-bold text-white font-mono">$10.00 USD</div>
             <p className="text-[11px] text-zinc-500">
               Fixed buy-in (${NOMINAL_STAKE_USD * MATCH_SIZE} total pool at {MATCH_SIZE} players).
+            </p>
+          </div>
+
+          <div className="rounded-2xl border border-zinc-800 bg-zinc-950/50 p-4 space-y-2">
+            <span className="text-zinc-500">Your leverage</span>
+            <div className="flex flex-wrap gap-1.5">
+              {LEVERAGE_OPTIONS.map((x) => (
+                <button
+                  key={x}
+                  type="button"
+                  onClick={() => setLeverage(x)}
+                  className={`rounded-lg border px-3 py-1.5 font-mono text-xs font-bold ${leverage === x ? 'border-emerald-500 bg-emerald-500/15 text-emerald-300' : 'border-zinc-700 bg-zinc-900 text-zinc-300 hover:border-zinc-500'}`}
+                >
+                  {x}x
+                </button>
+              ))}
+            </div>
+            <p className="text-[11px] text-zinc-500">
+              Sizes your real position: ${NOMINAL_STAKE_USD} × {leverage} = ${NOMINAL_STAKE_USD * leverage} of exposure. It never changes who wins: the match is decided by price direction alone.
             </p>
           </div>
 

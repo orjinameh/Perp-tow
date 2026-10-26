@@ -1,6 +1,6 @@
 'use client';
 
-import { LEVERAGE, MATCH_SIZE } from '@/lib/gameTag';
+import { MATCH_SIZE } from '@/lib/gameTag';
 
 import React from 'react';
 import { Swords, Volume2, VolumeX, BookOpen, RotateCcw } from 'lucide-react';
@@ -75,7 +75,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             Safeguards
           </button>
           <span className="text-zinc-600">·</span>
-          <span className="text-xs text-zinc-500 tabular-nums">{MATCH_SIZE} Players · $10 Entry · {LEVERAGE}x · 20% Rake</span>
+          <span className="text-xs text-zinc-500 tabular-nums">{MATCH_SIZE} Players · $10 Entry · your leverage · 20% Rake</span>
         </nav>
 
         {/* Zone 3: 1 primary action & controls */}

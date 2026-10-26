@@ -47,7 +47,7 @@ export function useAutoTrade(wallet: GameWallet) {
             markPlaced(p, true); // marked first so two ticks never place two orders
             try {
               const { openTrade } = await import('./openTrade');
-              const r = await openTrade({ key, address: address as `0x${string}`, ticker: p.ticker, side: p.side, number: p.number });
+              const r = await openTrade({ key, address: address as `0x${string}`, ticker: p.ticker, side: p.side, number: p.number, leverage: p.leverage });
               setNote(`${m.id}: your stake and your ${p.side === 'bulls' ? 'long' : 'short'} trade were placed automatically${r.txHash ? ` (tx ${r.txHash.slice(0, 10)}...)` : ''}.`);
             } catch (e) {
               markPlaced(p, false);

@@ -22,7 +22,7 @@ import type { EntryReceipt } from '@/lib/trading';
 import { WalletPanel } from '@/components/WalletPanel';
 import { useAutoTrade } from '@/lib/useAutoTrade';
 import { CORE_RULES } from '@/lib/payout';
-import { LEVERAGE, MATCH_SIZE } from '@/lib/gameTag';
+import { MATCH_SIZE } from '@/lib/gameTag';
 import { soundFx } from '@/lib/sound';
 import { Navbar } from '@/components/Navbar';
 import { FlowBreadcrumbs } from '@/components/FlowBreadcrumbs';
@@ -262,7 +262,7 @@ export default function TugOfWarApp() {
           )}
           {room.kind === 'hub' && (
             <div className="pointer-events-none absolute left-3 top-3 rounded-xl border border-zinc-800 bg-zinc-950/80 px-3 py-2 text-xs text-zinc-300">
-              Walk into a market door. {MATCH_SIZE} players per match · ${CORE_RULES.ENTRY_FEE} entry · {LEVERAGE}x.
+              Walk into a market door. {MATCH_SIZE} players per match · ${CORE_RULES.ENTRY_FEE} entry · pick your own leverage.
             </div>
           )}
 

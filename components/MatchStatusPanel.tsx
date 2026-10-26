@@ -86,7 +86,7 @@ const Inner: React.FC<{ match: GameMatch; progress: ReturnType<typeof useProgres
     const [o, p] = await Promise.all([import('@/lib/openTrade'), import('@/lib/pending')]);
     p.markPlaced({ ticker: match.market, number, address: wallet.address as string }, true);
     try {
-      const r = await o.openTrade({ key: key as `0x${string}`, address: wallet.address as `0x${string}`, ticker: match.market, side: me!.side, number, onStep: advance });
+      const r = await o.openTrade({ key: key as `0x${string}`, address: wallet.address as `0x${string}`, ticker: match.market, side: me!.side, number, onStep: advance, leverage: p.getPending().find((x) => x.ticker === match.market && x.number === number && x.address.toLowerCase() === (wallet.address as string).toLowerCase())?.leverage });
       return `Trade placed. Tx ${r.txHash}`;
     } catch (e) {
       p.markPlaced({ ticker: match.market, number, address: wallet.address as string }, false);
