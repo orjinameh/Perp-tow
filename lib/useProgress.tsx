@@ -32,7 +32,7 @@ export function useProgress() {
       timer.current = setTimeout(() => setView(null), 900);
       return { ok: true, value };
     } catch (e) {
-      const error = e instanceof Error ? e.message.split('\n')[0] : String(e);
+      const error = e instanceof Error ? e.message.split('\n').map((l) => l.trim()).filter(Boolean).slice(0, 3).join(' ') : String(e);
       setView({ title, steps: mark(current, true), error });
       return { ok: false, error };
     }

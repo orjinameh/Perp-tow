@@ -209,6 +209,8 @@ const Inner: React.FC<{ match: GameMatch; progress: ReturnType<typeof useProgres
   const losers = result === 'bulls' ? match.bears : match.bulls;
   const pay = result && result !== 'tie' ? calculatePayout({ winnerCount: winners, loserCount: losers, entryFee: CORE_RULES.ENTRY_FEE }) : null;
   const mySide = me?.side;
+  // Only a winner (or anyone, if the escrow made it a refund) can claim; the contract refuses losers.
+  const canClaim = !!escrow && (escrow.result === 3 || (escrow.result === 1 && mySide === 'bulls') || (escrow.result === 2 && mySide === 'bears'));
   return (
     <Box tone="border-emerald-500/30">
       <div className="font-semibold text-emerald-300">Settled · {result === 'tie' ? 'tie, everyone is refunded' : `${result === 'bulls' ? 'Bulls' : 'Bears'} won`}</div>
@@ -224,7 +226,11 @@ const Inner: React.FC<{ match: GameMatch; progress: ReturnType<typeof useProgres
       <div className="text-[11px] text-zinc-500">
         {escrow ? 'Stakes are held by the escrow contract. The operator posts the result, then each winner claims.' : 'The escrow is not switched on, so no prize money moves; your real position on dreamDEX is separate.'}
       </div>
-      {escrow && escrow.joined && escrow.result !== 0 && !escrow.claimed && (
+      {escrow && escrow.joined && escrow.result !== 0 && !escrow.claimed && !canClaim && (
+        <div className="text-xs text-rose-300">You were on the losing side, so there is nothing to claim. Your ${CORE_RULES.ENTRY_FEE} stake went to the winners and the rake.</div>
+      )}
+      {escrow && escrow.joined && escrow.claimed && <div className="text-xs text-emerald-300">Payout claimed.</div>}
+      {escrow && escrow.joined && escrow.result !== 0 && !escrow.claimed && canClaim && (
         <button onClick={doClaim} disabled={busy} className={`${btn} border-emerald-500/40 bg-emerald-500/10 text-emerald-200 hover:bg-emerald-500/20`}>
           {busy ? <span className="inline-flex items-center gap-1.5"><Spinner className="h-3 w-3" />Claiming…</span> : 'Claim payout'}
         </button>
