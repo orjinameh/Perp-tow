@@ -68,6 +68,18 @@ export async function loadMarkets(): Promise<{ markets: MarketQueueData[]; faile
     where: {perpRegistered: {_eq: true}}, limit: 100
   ) { id baseSymbol baseDecimals lastPrice indexPrice openInterest } }`);
 
+  // Each market's own limit: max leverage = 10000 / initial margin (in basis points).
+  const maxLev = new Map<string, number>();
+  try {
+    const m = await gql<{ Market: { id: string; initialMarginBps: number | string | null }[] }>(`{ Market(where: {perpRegistered: {_eq: true}}, limit: 100) { id initialMarginBps } }`);
+    for (const r of m.Market) {
+      const bps = Number(r.initialMarginBps);
+      if (bps > 0) maxLev.set(r.id, Math.floor(10_000 / bps));
+    }
+  } catch {
+    /* unknown limits: the screens fall back to the default choices */
+  }
+
   const since = Math.floor(Date.now() / 1000) - 24 * 3600;
   const failed: CryptoAsset[] = [];
   const markets: MarketQueueData[] = [];
@@ -86,6 +98,7 @@ export async function loadMarkets(): Promise<{ markets: MarketQueueData[]; faile
         name: MARKET_NAMES[raw.baseSymbol] ?? raw.baseSymbol,
         pool: raw.id,
         baseDecimals: raw.baseDecimals,
+        maxLeverage: maxLev.get(raw.id),
         price,
         priceChange24h: Math.round(priceChange24h * 100) / 100,
         high24h: candles.length ? Math.max(...candles.map((c) => c.high)) : price,

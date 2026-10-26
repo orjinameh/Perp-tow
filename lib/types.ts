@@ -24,6 +24,7 @@ export interface MarketQueueData {
   ticker: CryptoAsset;
   name: string;
   pool: string; // dreamDEX perp pool address
+  maxLeverage?: number; // 10000 / the market's initial margin in bps (BTC 20x, 10x or 5x on others)
   baseDecimals: number;
   price: number; // last traded price, USD
   priceChange24h: number; // percentage over the last 24h of candles

@@ -22,6 +22,7 @@ interface PerpRow {
   lotSize: string;
   minQuantity: string;
   markPrice: string;
+  initialMarginBps?: number | string;
 }
 
 export interface EntryReceipt {
@@ -150,6 +151,9 @@ export async function enterMatch(args: {
   const rows = (await ex.client.listPerpMarkets()) as unknown as PerpRow[];
   const m = rows.find((r) => r.baseSymbol === ticker);
   if (!m) throw new Error(`${ticker} is not a dreamDEX perp market right now.`);
+
+  const bps = Number(m.initialMarginBps);
+  if (bps > 0 && lev > Math.floor(10_000 / bps)) throw new Error(`${ticker}-PERP allows at most ${Math.floor(10_000 / bps)}x leverage, and you chose ${lev}x.`);
 
   const isBid = side === 'bulls';
   const dec = BigInt(m.baseDecimals);

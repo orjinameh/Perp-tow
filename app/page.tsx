@@ -333,6 +333,8 @@ export default function TugOfWarApp() {
                   match={selectedMatch}
                   wallet={wallet}
                   pool={currentMarket?.pool ?? ''}
+            maxLeverage={currentMarket?.maxLeverage}
+                  maxLeverage={currentMarket?.maxLeverage}
                   onEntered={handleEntered}
                   onBackToInspect={() => setScreen('matches')}
                 />

@@ -2,7 +2,7 @@
 
 import { Spinner } from '@/components/ProgressModal';
 import { useProgress } from '@/lib/useProgress';
-import { LEVERAGE, LEVERAGE_OPTIONS, MATCH_SIZE, NOMINAL_STAKE_USD } from '@/lib/gameTag';
+import { LEVERAGE, leverageChoices, MATCH_SIZE, NOMINAL_STAKE_USD } from '@/lib/gameTag';
 import React from 'react';
 import Image from 'next/image';
 import {
@@ -28,6 +28,7 @@ interface EntryConfirmScreenProps {
   match: GameMatch;
   wallet: GameWallet;
   pool: string;
+  maxLeverage?: number;
   onEntered: (receipt: EntryReceipt) => void;
   onBackToInspect: () => void;
 }
@@ -38,13 +39,15 @@ export const EntryConfirmScreen: React.FC<EntryConfirmScreenProps> = ({
   match,
   wallet,
   pool,
+  maxLeverage,
   onEntered,
   onBackToInspect,
 }) => {
   const isFull = match.total === MATCH_SIZE;
   const [busy, setBusy] = React.useState(false);
   const progress = useProgress();
-  const [leverage, setLeverage] = React.useState<number>(LEVERAGE);
+  const choices = leverageChoices(maxLeverage);
+  const [leverage, setLeverage] = React.useState<number>(Math.min(LEVERAGE, choices[choices.length - 1]));
   const [error, setError] = React.useState<string | null>(null);
 
   // The last seat must not make the roster one-sided.
@@ -167,7 +170,7 @@ export const EntryConfirmScreen: React.FC<EntryConfirmScreenProps> = ({
           <div className="rounded-2xl border border-zinc-800 bg-zinc-950/50 p-4 space-y-2">
             <span className="text-zinc-500">Your leverage</span>
             <div className="flex flex-wrap gap-1.5">
-              {LEVERAGE_OPTIONS.map((x) => (
+              {choices.map((x) => (
                 <button
                   key={x}
                   type="button"
@@ -179,7 +182,7 @@ export const EntryConfirmScreen: React.FC<EntryConfirmScreenProps> = ({
               ))}
             </div>
             <p className="text-[11px] text-zinc-500">
-              Sizes your real position: ${NOMINAL_STAKE_USD} × {leverage} = ${NOMINAL_STAKE_USD * leverage} of exposure. It never changes who wins: the match is decided by price direction alone.
+              Sizes your real position (this market allows up to {choices[choices.length - 1]}x): ${NOMINAL_STAKE_USD} × {leverage} = ${NOMINAL_STAKE_USD * leverage} of exposure. It never changes who wins: the match is decided by price direction alone.
             </p>
           </div>
 
