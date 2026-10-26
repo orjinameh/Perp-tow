@@ -9,7 +9,8 @@
     "lint": "eslint .",
     "clean": "next clean",
     "deploy:escrow": "node scripts/deploy-escrow.mjs",
-    "settle": "tsx scripts/settle.mts",
+    "settle": "node --env-file=.env.local --import tsx scripts/settle.mts",
+    "operator": "node --env-file=.env.local --import tsx scripts/operator.mts",
     "deploy:registry": "node scripts/deploy-registry.mjs"
   },
   "dependencies": {
