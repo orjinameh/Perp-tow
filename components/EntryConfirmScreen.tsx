@@ -231,7 +231,7 @@ export const EntryConfirmScreen: React.FC<EntryConfirmScreenProps> = ({
             }}
             className="text-xs text-zinc-400 hover:text-white underline underline-offset-4"
           >
-            &larr; Back to inspect match
+            &larr; Back to matches
           </button>
 
           <button

@@ -105,7 +105,7 @@ export default function TugOfWarApp() {
   const handleOpenNewMatch = () => {
     if (!selectedAsset) return;
     setSelectedMatch(draftMatch(selectedAsset, nextMatchNumber(currentMatches)));
-    setScreen('inspect');
+    setScreen('entry');
   };
 
   // Step 2: Select a market
@@ -123,7 +123,7 @@ export default function TugOfWarApp() {
   // Step 4: Display & Select match
   const handleSelectMatch = (match: GameMatch) => {
     setSelectedMatch(match);
-    setScreen('inspect');
+    setScreen('entry');
   };
 
   // Step 5 -> Step 7: Continue to entry screen
@@ -320,7 +320,7 @@ export default function TugOfWarApp() {
                   wallet={wallet}
                   pool={currentMarket?.pool ?? ''}
                   onEntered={handleEntered}
-                  onBackToInspect={() => setScreen('inspect')}
+                  onBackToInspect={() => setScreen('matches')}
                 />
               )}
             </div>
@@ -400,7 +400,7 @@ export default function TugOfWarApp() {
             wallet={wallet}
             pool={currentMarket?.pool ?? ''}
             onEntered={handleEntered}
-            onBackToInspect={() => setScreen('inspect')}
+            onBackToInspect={() => setScreen('matches')}
           />
         )}
 
