@@ -1,5 +1,6 @@
 'use client';
 
+import { nowSec } from '@/lib/clock';
 import React, { useEffect, useRef } from 'react';
 import * as THREE from 'three';
 import { GameMatch, MarketQueueData, PositionSide } from '@/lib/types';
@@ -455,7 +456,7 @@ export const World3D: React.FC<Props> = (props) => {
           c.fillText('Reading your match from the chain…', cw / 2, ch / 2);
           return;
         }
-        const now = Math.floor(Date.now() / 1000);
+        const now = nowSec();
         c.fillStyle = '#f8fafc';
         c.font = 'bold 110px system-ui, sans-serif';
         c.fillText(m.id, cw / 2, 120);

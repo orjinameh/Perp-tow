@@ -1,3 +1,4 @@
+import { nowSec } from './clock';
 import { GameMatch, PlayerSlot } from './types';
 import { CONFIRM_SECONDS, LOBBY_SECONDS, MATCH_DURATION_SEC, MATCH_SIZE, MIN_PLAYERS, NOMINAL_STAKE_USD, TRADE_SECONDS } from './gameTag';
 import { readMatches } from './registry';
@@ -37,7 +38,7 @@ const short = (a: string) => `${a.slice(0, 6)}...${a.slice(-4)}`;
  */
 export async function loadMatches(pool: string, ticker: string, me: string | null): Promise<GameMatch[]> {
   const chain = await readMatches(ticker);
-  const now = Math.floor(Date.now() / 1000);
+  const now = nowSec();
 
   // Work out each match's phase from the registry's timestamps.
   interface Phase {

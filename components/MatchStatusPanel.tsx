@@ -1,5 +1,6 @@
 'use client';
 
+import { nowSec } from '@/lib/clock';
 import React, { useEffect, useState } from 'react';
 import { GameMatch } from '@/lib/types';
 import { MATCH_DURATION_SEC, MIN_PLAYERS } from '@/lib/gameTag';
@@ -16,7 +17,7 @@ const btn = 'rounded-lg border px-3 py-1.5 text-xs disabled:opacity-50';
 /** Where this match is in its life: lobby, "continue?", opening trades, running, settled or cancelled. */
 const Inner: React.FC<{ match: GameMatch; progress: ReturnType<typeof useProgress> }> = ({ match, progress }) => {
   const wallet = useGameWallet();
-  const [now, setNow] = useState(() => Math.floor(Date.now() / 1000));
+  const [now, setNow] = useState(() => nowSec());
   const [msg, setMsg] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [openPos, setOpenPos] = useState(false);
@@ -25,7 +26,7 @@ const Inner: React.FC<{ match: GameMatch; progress: ReturnType<typeof useProgres
   const escrowOn = Boolean(process.env.NEXT_PUBLIC_ESCROW_ADDRESS);
 
   useEffect(() => {
-    const id = setInterval(() => setNow(Math.floor(Date.now() / 1000)), 1000);
+    const id = setInterval(() => setNow(nowSec()), 1000);
     return () => clearInterval(id);
   }, []);
 
