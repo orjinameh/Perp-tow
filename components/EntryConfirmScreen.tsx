@@ -62,7 +62,13 @@ export const EntryConfirmScreen: React.FC<EntryConfirmScreenProps> = ({
       // Loaded only now, in the browser, so the SDK never runs during server rendering.
       const { enterRegistry } = await import('@/lib/registry');
       const { addPending } = await import('@/lib/pending');
-      const number = Number(match.id.split('#')[1]);
+      let number = Number(match.id.split('#')[1]);
+      // A brand-new match takes the next free number on the chain right now, not the one this tab last saw.
+      if (match.total === 0) {
+        const { readMatches } = await import('@/lib/registry');
+        const latest = (await readMatches(market).catch(() => [])).reduce((mx, r) => Math.max(mx, r.number), 0);
+        if (number <= latest) number = latest + 1;
+      }
       // The seat comes first: a full or closed lobby is refused here.
       advance(0);
       const seatTx = await enterRegistry(wallet.key as string, market, number, selectedSide);
