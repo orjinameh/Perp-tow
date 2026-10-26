@@ -7,6 +7,7 @@ import { getPending, removePending } from '@/lib/pending';
 import type { WorldRoom } from '@/components/World3D';
 import { MatchStatusPanel } from '@/components/MatchStatusPanel';
 import { LeadersPanel } from '@/components/LeadersPanel';
+import { HistoryPanel } from '@/components/HistoryPanel';
 import { useCopyTrade } from '@/lib/useCopyTrade';
 import {
   CryptoAsset,
@@ -50,6 +51,7 @@ export default function TugOfWarApp() {
   const autoTradeNote = useAutoTrade(wallet);
   const copy = useCopyTrade(wallet);
   const [leadersOpen, setLeadersOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
 
   // 3D world or the classic screens. The 3D world drives the very same state and screens.
   const [view, setView] = useState<'world' | 'classic'>('world');
@@ -194,6 +196,7 @@ export default function TugOfWarApp() {
         view={view}
         onToggleView={() => switchView(view === 'world' ? 'classic' : 'world')}
         onOpenLeaders={live.status === 'ok' ? () => setLeadersOpen(true) : undefined}
+        onOpenHistory={live.status === 'ok' ? () => setHistoryOpen(true) : undefined}
       />
 
       <WalletPanel wallet={wallet} />
@@ -209,6 +212,7 @@ export default function TugOfWarApp() {
           <button onClick={() => copy.stop()} className="ml-2 underline">Stop</button>
         </div>
       )}
+      {historyOpen && live.status === 'ok' && <HistoryPanel markets={live.markets} wallet={wallet} onClose={() => setHistoryOpen(false)} />}
       {leadersOpen && live.status === 'ok' && <LeadersPanel markets={live.markets} wallet={wallet} copy={copy} onClose={() => setLeadersOpen(false)} />}
       {worldNote && <div className="border-b border-rose-500/30 bg-rose-950/30 px-4 py-2 text-center text-xs text-rose-200">{worldNote}</div>}
 
@@ -333,7 +337,6 @@ export default function TugOfWarApp() {
                   match={selectedMatch}
                   wallet={wallet}
                   pool={currentMarket?.pool ?? ''}
-            maxLeverage={currentMarket?.maxLeverage}
                   maxLeverage={currentMarket?.maxLeverage}
                   onEntered={handleEntered}
                   onBackToInspect={() => setScreen('matches')}
@@ -415,6 +418,7 @@ export default function TugOfWarApp() {
             match={selectedMatch}
             wallet={wallet}
             pool={currentMarket?.pool ?? ''}
+            maxLeverage={currentMarket?.maxLeverage}
             onEntered={handleEntered}
             onBackToInspect={() => setScreen('matches')}
           />
