@@ -49,7 +49,10 @@ export const HistoryPanel: React.FC<{ markets: MarketQueueData[]; wallet: GameWa
       const e = await import('@/lib/escrow');
       const h = await (r.action === 'leave' ? e.leaveEscrow : e.claimEscrow)(wallet.key as `0x${string}`, wallet.address as `0x${string}`, r.ticker, r.number);
       setNote(`${r.id}: ${r.action === 'leave' ? 'stake returned' : 'payout claimed'}. Tx ${h}`);
-      await load();
+      // show it as done at once; the re-read below confirms it from the chain
+      setMatches((ms) => (ms ? ms.map((x) => (x.id === r.id ? { ...x, claimed: true, action: null } : x)) : ms));
+      setActing(null);
+      void load();
     } catch (err) {
       setNote(`${r.id}: ${(err instanceof Error ? err.message : String(err)).replace(/\s+/g, ' ')}`);
     } finally {
