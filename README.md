@@ -50,11 +50,20 @@ A single match can also be settled by hand with `npm run settle -- BTC 3`.
 
 Players create or import a testnet game wallet in the page. Use a key that holds no real funds.
 
+## Bot mode
+
+The game wallet in the browser can act as a bot for your main wallet, the same idea as dreamDEX's "Add bot".
+
+- Your main wallet stays the player: seats, stakes, perp margin and winnings all belong to it.
+- The game wallet only signs. It can place and cancel perp orders on your account, take seats, stake and claim for you, and nothing else. Stakes are pulled from your main wallet up to a budget you set, and refunds and payouts always go back to it.
+- Run `npm run grant -- <game wallet address> BTC ETH` once with your main wallet's key in `OWNER_KEY`, then `npm run bot-check -- <main address> <game wallet address> BTC` to test it without sending anything.
+- The tab must stay open, as with manual play.
+
 ## Notes and limits
 
 - The operator trusts public candle data to post results. This is by design for the prototype.
 - The game wallet key is kept in the browser's local storage, for the testnet only.
-- Delegated order placement does not exist in the SDK yet, so copy trading only works while a tab is open.
+- The bot runs in an open tab. It is not a hosted service and nobody else holds your key.
 
 ## X posts
 

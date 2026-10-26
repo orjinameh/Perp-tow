@@ -12,6 +12,11 @@ export const registryEnabled = REGISTRY_ADDRESS !== '';
 const ABI = parseAbi([
   'function enter(string market, uint256 matchNumber, uint8 side)',
   'function latestMatch(string market) view returns (uint256)',
+  'function enterFor(address player, string market, uint256 matchNumber, uint8 side)',
+  'function confirmFor(address player, string market, uint256 matchNumber)',
+  'function leaveFor(address player, string market, uint256 matchNumber)',
+  'function setBot(address bot, bool allowed)',
+  'function botOf(address player, address bot) view returns (bool)',
   'function roster(string market, uint256 matchNumber) view returns (address[] players, uint8[] sides, bool[] confirmed, uint64 firstAt, uint64 fullAt)',
   'function confirm(string market, uint256 matchNumber)',
   'function leave(string market, uint256 matchNumber)',
@@ -27,15 +32,19 @@ export interface RegistryMatch {
 }
 
 /** Takes a seat. Reverts on chain when the match is full or this wallet is already in it. */
-export async function enterRegistry(key: Hex, ticker: string, matchNumber: number, side: 'bulls' | 'bears'): Promise<string | null> {
+export async function enterRegistry(key: Hex, ticker: string, matchNumber: number, side: 'bulls' | 'bears', player?: Hex): Promise<string | null> {
   if (!registryEnabled) throw new Error('The game registry is not set up yet (NEXT_PUBLIC_REGISTRY_ADDRESS is empty).');
   const wallet = createWalletClient({ chain: hidekiTestnet, transport: http(RPC), account: privateKeyToAccount(key) });
   let hash: Hex;
   try {
-    hash = await wallet.writeContract({ address: REGISTRY_ADDRESS as Hex, abi: ABI, functionName: 'enter', args: [ticker, BigInt(matchNumber), side === 'bulls' ? 1 : 2] });
+    const forOther = player && player.toLowerCase() !== wallet.account.address.toLowerCase();
+    hash = forOther
+      ? await wallet.writeContract({ address: REGISTRY_ADDRESS as Hex, abi: ABI, functionName: 'enterFor', args: [player, ticker, BigInt(matchNumber), side === 'bulls' ? 1 : 2] })
+      : await wallet.writeContract({ address: REGISTRY_ADDRESS as Hex, abi: ABI, functionName: 'enter', args: [ticker, BigInt(matchNumber), side === 'bulls' ? 1 : 2] });
   } catch (e) {
     const err = e as { shortMessage?: string; message?: string };
     const text = err.shortMessage ?? err.message ?? String(e);
+    if (/not allowed/i.test(text)) throw new Error('Your main wallet has not approved this game wallet as its bot yet. Run the grant step first.');
     if (/lobby is closed/i.test(text)) throw new Error('This lobby has closed. Open or join a newer match.');
     if (/other side/i.test(text)) throw new Error('This match needs both teams. Take the other side, or join a different match.');
     if (/full/i.test(text)) throw new Error('This match is already full. Open a new match.');
@@ -75,11 +84,14 @@ export async function readMatches(ticker: string): Promise<RegistryMatch[]> {
   return rows.filter((r) => r.players.length > 0);
 }
 
-async function simpleCall(key: Hex, fn: 'confirm' | 'leave', ticker: string, matchNumber: number): Promise<string> {
+async function simpleCall(key: Hex, fn: 'confirm' | 'leave', ticker: string, matchNumber: number, player?: Hex): Promise<string> {
   if (!registryEnabled) throw new Error('The game registry is not set up yet.');
   const wallet = createWalletClient({ chain: hidekiTestnet, transport: http(RPC), account: privateKeyToAccount(key) });
   try {
-    const hash = await wallet.writeContract({ address: REGISTRY_ADDRESS as Hex, abi: ABI, functionName: fn, args: [ticker, BigInt(matchNumber)] });
+    const forOther = player && player.toLowerCase() !== wallet.account.address.toLowerCase();
+    const hash = forOther
+      ? await wallet.writeContract({ address: REGISTRY_ADDRESS as Hex, abi: ABI, functionName: fn === 'confirm' ? 'confirmFor' : 'leaveFor', args: [player, ticker, BigInt(matchNumber)] })
+      : await wallet.writeContract({ address: REGISTRY_ADDRESS as Hex, abi: ABI, functionName: fn, args: [ticker, BigInt(matchNumber)] });
     const rc = await pub().waitForTransactionReceipt({ hash });
     if (rc.status !== 'success') throw new Error(`${fn} reverted on chain (${hash}).`);
     return hash;
@@ -95,6 +107,6 @@ async function simpleCall(key: Hex, fn: 'confirm' | 'leave', ticker: string, mat
 }
 
 /** "Yes, continue with fewer players." Only valid in the confirm window. */
-export const confirmRegistry = (key: Hex, ticker: string, matchNumber: number) => simpleCall(key, 'confirm', ticker, matchNumber);
+export const confirmRegistry = (key: Hex, ticker: string, matchNumber: number, player?: Hex) => simpleCall(key, 'confirm', ticker, matchNumber, player);
 /** Give up the seat while the lobby is open. */
-export const leaveRegistry = (key: Hex, ticker: string, matchNumber: number) => simpleCall(key, 'leave', ticker, matchNumber);
+export const leaveRegistry = (key: Hex, ticker: string, matchNumber: number, player?: Hex) => simpleCall(key, 'leave', ticker, matchNumber, player);

@@ -23,6 +23,11 @@ contract TugRegistry {
     mapping(bytes32 => uint32) private _bulls;
     mapping(bytes32 => uint256) private _latest;   // key: keccak256(market): highest match number used
 
+    // An account can approve a bot (for example the game wallet in its browser). The bot may then act for the
+    // account in this registry, and nothing else: seats still belong to the account.
+    mapping(address => mapping(address => bool)) public botOf;
+    event BotSet(address indexed player, address indexed bot, bool allowed);
+
     event Entered(bytes32 indexed marketHash, uint256 indexed matchNumber, address indexed player, uint8 side, uint32 seat);
     event Confirmed(bytes32 indexed marketHash, uint256 indexed matchNumber, address indexed player);
     event Left(bytes32 indexed marketHash, uint256 indexed matchNumber, address indexed player);
@@ -34,18 +39,37 @@ contract TugRegistry {
         confirmSeconds = _confirmSeconds;
     }
 
+    function setBot(address bot, bool allowed) external {
+        botOf[msg.sender][bot] = allowed;
+        emit BotSet(msg.sender, bot, allowed);
+    }
+
+    function _auth(address player) internal view {
+        require(player == msg.sender || botOf[player][msg.sender], "not allowed");
+    }
+
     function enter(string calldata market, uint256 matchNumber, uint8 side) external {
+        _enter(msg.sender, market, matchNumber, side);
+    }
+
+    /// A bot takes a seat for an account that approved it.
+    function enterFor(address player, string calldata market, uint256 matchNumber, uint8 side) external {
+        _auth(player);
+        _enter(player, market, matchNumber, side);
+    }
+
+    function _enter(address player, string calldata market, uint256 matchNumber, uint8 side) internal {
         require(side == 1 || side == 2, "side");
         require(matchNumber >= 1, "match number");
         // numbers run in order: nobody can jump the counter far ahead and hide every real match from the lists
         require(matchNumber <= _latest[keccak256(bytes(market))] + 1, "match number too high");
         bytes32 key = keccak256(abi.encode(market, matchNumber));
-        require(!inMatch[key][msg.sender], "already in this match");
+        require(!inMatch[key][player], "already in this match");
         require(_seats[key].length < size, "match is full");
         if (_firstAt[key] == 0) _firstAt[key] = uint64(block.timestamp);
         require(block.timestamp < _firstAt[key] + lobbySeconds, "lobby is closed");
-        inMatch[key][msg.sender] = true;
-        _seats[key].push(Seat(msg.sender, side, false));
+        inMatch[key][player] = true;
+        _seats[key].push(Seat(player, side, false));
         if (side == 1) _bulls[key]++;
         uint32 seat = uint32(_seats[key].length);
         if (seat == size) {
@@ -55,11 +79,20 @@ contract TugRegistry {
         }
         bytes32 mh = keccak256(bytes(market));
         if (matchNumber > _latest[mh]) _latest[mh] = matchNumber;
-        emit Entered(mh, matchNumber, msg.sender, side, seat);
+        emit Entered(mh, matchNumber, player, side, seat);
     }
 
     /// Say "yes, continue with fewer players" during the confirm window of a lobby that did not fill.
     function confirm(string calldata market, uint256 matchNumber) external {
+        _confirm(msg.sender, market, matchNumber);
+    }
+
+    function confirmFor(address player, string calldata market, uint256 matchNumber) external {
+        _auth(player);
+        _confirm(player, market, matchNumber);
+    }
+
+    function _confirm(address player, string calldata market, uint256 matchNumber) internal {
         bytes32 key = keccak256(abi.encode(market, matchNumber));
         require(_fullAt[key] == 0, "match is full");
         uint64 lobbyEnd = _firstAt[key] + lobbySeconds;
@@ -67,9 +100,9 @@ contract TugRegistry {
         require(block.timestamp < lobbyEnd + confirmSeconds, "confirm window closed");
         Seat[] storage s = _seats[key];
         for (uint256 i = 0; i < s.length; i++) {
-            if (s[i].player == msg.sender) {
+            if (s[i].player == player) {
                 s[i].confirmed = true;
-                emit Confirmed(keccak256(bytes(market)), matchNumber, msg.sender);
+                emit Confirmed(keccak256(bytes(market)), matchNumber, player);
                 return;
             }
         }
@@ -78,21 +111,30 @@ contract TugRegistry {
 
     /// Give up a seat while the lobby is still open and not full.
     function leave(string calldata market, uint256 matchNumber) external {
+        _leave(msg.sender, market, matchNumber);
+    }
+
+    function leaveFor(address player, string calldata market, uint256 matchNumber) external {
+        _auth(player);
+        _leave(player, market, matchNumber);
+    }
+
+    function _leave(address player, string calldata market, uint256 matchNumber) internal {
         bytes32 key = keccak256(abi.encode(market, matchNumber));
         require(_fullAt[key] == 0, "match is full");
         require(block.timestamp < _firstAt[key] + lobbySeconds, "lobby is closed");
-        require(inMatch[key][msg.sender], "not in this match");
+        require(inMatch[key][player], "not in this match");
         Seat[] storage s = _seats[key];
         for (uint256 i = 0; i < s.length; i++) {
-            if (s[i].player == msg.sender) {
+            if (s[i].player == player) {
                 if (s[i].side == 1) _bulls[key]--;
                 s[i] = s[s.length - 1];
                 s.pop();
                 break;
             }
         }
-        inMatch[key][msg.sender] = false;
-        emit Left(keccak256(bytes(market)), matchNumber, msg.sender);
+        inMatch[key][player] = false;
+        emit Left(keccak256(bytes(market)), matchNumber, player);
     }
 
     /// Highest match number anyone has entered on this market (0 if none).

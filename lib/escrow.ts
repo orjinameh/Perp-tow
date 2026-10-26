@@ -19,10 +19,17 @@ export const ESCROW_ABI = parseAbi([
   'function matches(bytes32) view returns (uint32 bulls, uint32 bears, uint64 startedAt, uint8 result, uint256 rakeOwed)',
   'function sideOf(bytes32, address) view returns (uint8)',
   'function claimed(bytes32, address) view returns (bool)',
+  'function joinFor(address player, bytes32 key, uint8 side)',
+  'function claimFor(address player, bytes32 key)',
+  'function leaveFor(address player, bytes32 key)',
+  'function setBot(address bot, bool allowed)',
   'function duration() view returns (uint64)',
   'function graceAfter() view returns (uint64)',
 ]);
-const ERC20 = parseAbi(['function approve(address,uint256) returns (bool)', 'function allowance(address,address) view returns (uint256)']);
+const ERC20 = parseAbi(['function approve(address,uint256) returns (bool)', 'function allowance(address,address) view returns (uint256)', 'function balanceOf(address) view returns (uint256)']);
+
+/** True when the key signs for a different account (the game wallet acting as a bot for a main wallet). */
+const forOther = (key: Hex, address: Hex) => privateKeyToAccount(key).address.toLowerCase() !== address.toLowerCase();
 
 /** Same key the contract computes: keccak256(abi.encode(market, number)). */
 export function matchKey(ticker: string, matchNumber: number): Hex {
@@ -44,12 +51,20 @@ export async function joinEscrow(key: Hex, address: Hex, ticker: string, matchNu
   if (!escrowEnabled) return null;
   const stake = parseUnits(String(stakeUsd), 18);
   const allowance = await pub().readContract({ address: USDSO, abi: ERC20, functionName: 'allowance', args: [address, ESCROW_ADDRESS as Hex] });
+  if (forOther(key, address)) {
+    // The bot cannot approve for the account: the account approved the escrow when it granted the bot.
+    if (allowance < stake) throw new Error('Your main wallet has not approved enough USDso for the escrow. Run the grant step again (it sets the stake budget).');
+    const have = (await pub().readContract({ address: USDSO, abi: ERC20, functionName: 'balanceOf', args: [address] })) as bigint;
+    if (have < stake) throw new Error('Your main wallet holds less than the $10 stake in USDso. Withdraw some margin to the wallet first.');
+    return send(key, address, ESCROW_ABI, 'joinFor', [address, matchKey(ticker, matchNumber), side === 'bulls' ? 1 : 2], ESCROW_ADDRESS as Hex);
+  }
   if (allowance < stake) await send(key, address, ERC20, 'approve', [ESCROW_ADDRESS, stake], USDSO);
   return send(key, address, ESCROW_ABI, 'join', [matchKey(ticker, matchNumber), side === 'bulls' ? 1 : 2], ESCROW_ADDRESS as Hex);
 }
 
 export async function claimEscrow(key: Hex, address: Hex, ticker: string, matchNumber: number) {
   if (!escrowEnabled) throw new Error('The escrow is not switched on.');
+  if (forOther(key, address)) return send(key, address, ESCROW_ABI, 'claimFor', [address, matchKey(ticker, matchNumber)], ESCROW_ADDRESS as Hex);
   return send(key, address, ESCROW_ABI, 'claim', [matchKey(ticker, matchNumber)], ESCROW_ADDRESS as Hex);
 }
 
@@ -74,5 +89,6 @@ export async function escrowStatus(ticker: string, matchNumber: number, player: 
 /** Takes the stake back from a match that has not started. */
 export async function leaveEscrow(key: Hex, address: Hex, ticker: string, matchNumber: number) {
   if (!escrowEnabled) throw new Error('The escrow is not switched on.');
+  if (forOther(key, address)) return send(key, address, ESCROW_ABI, 'leaveFor', [address, matchKey(ticker, matchNumber)], ESCROW_ADDRESS as Hex);
   return send(key, address, ESCROW_ABI, 'leave', [matchKey(ticker, matchNumber)], ESCROW_ADDRESS as Hex);
 }

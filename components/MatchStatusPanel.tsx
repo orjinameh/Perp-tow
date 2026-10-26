@@ -76,12 +76,12 @@ const Inner: React.FC<{ match: GameMatch; progress: ReturnType<typeof useProgres
 
   const doConfirm = () => act('Confirming your seat', ['Sending confirmation'], async () => {
     const r = await import('@/lib/registry');
-    const h = await r.confirmRegistry(key as `0x${string}`, match.market, number);
+    const h = await r.confirmRegistry(key as `0x${string}`, match.market, number, wallet.address as `0x${string}`);
     return `You are in. Tx ${h}`;
   });
   const doLeave = () => act('Leaving the lobby', ['Freeing your seat'], async () => {
     const r = await import('@/lib/registry');
-    const h = await r.leaveRegistry(key as `0x${string}`, match.market, number);
+    const h = await r.leaveRegistry(key as `0x${string}`, match.market, number, wallet.address as `0x${string}`);
     return `You left the lobby. Tx ${h}`;
   });
   const doOpenTrade = () => act('Opening your trade', escrowOn ? ['Staking $10 in the escrow', 'Setting leverage and placing the order'] : ['Setting leverage and placing the order'], async (advance) => {

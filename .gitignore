@@ -7,3 +7,5 @@ coverage/
 !.env.example
 repro-claim-key.txt
 repro-claim.txt
+.bots.json
+probe-out.txt

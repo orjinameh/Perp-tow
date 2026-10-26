@@ -6,6 +6,7 @@ import { createRequire } from 'node:module';
 import { createPublicClient, createWalletClient, http } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { hidekiTestnet } from '@somnia-chain/markets-sdk/chains';
+import { setEnv } from './envfile.mjs';
 
 const require = createRequire(import.meta.url);
 const solc = require('solc');
@@ -33,5 +34,5 @@ const hash = await wallet.deployContract({ abi: c.abi, bytecode: `0x${c.evm.byte
 const rc = await pub.waitForTransactionReceipt({ hash });
 console.log(`Registry deployed: ${size} players per match, lobby ${lobby}s, confirm window ${confirmSecs}s.`);
 console.log(`Tx: https://explorer.testnet.somnia.network/tokyo/tx/${hash}`);
-console.log('Add to .env.local:');
-console.log(`NEXT_PUBLIC_REGISTRY_ADDRESS=${rc.contractAddress}`);
+setEnv('NEXT_PUBLIC_REGISTRY_ADDRESS', rc.contractAddress);
+console.log('Restart the dev server so the app picks it up.');

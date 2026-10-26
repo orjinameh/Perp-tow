@@ -1,6 +1,8 @@
 import { SomniaMarkets, SOMNIA_HIDEKI_TESTNET_ADDRESSES } from '@somnia-chain/markets-sdk';
 import { hidekiTestnet } from '@somnia-chain/markets-sdk/chains';
-import { createPublicClient, formatEther, formatUnits, http, parseAbi } from 'viem';
+import { createPublicClient, createWalletClient, formatEther, formatUnits, http, parseAbi, zeroAddress } from 'viem';
+import { privateKeyToAccount } from 'viem/accounts';
+import { gql } from './indexer';
 import { PositionSide } from './types';
 import { encodeUserData, LEVERAGE } from './gameTag';
 
@@ -36,11 +38,50 @@ export interface EntryReceipt {
   seatOnly?: boolean; // only a seat was taken: the real order is placed when the match locks
 }
 
+/** True when the key signs for a different account: the game wallet acting as a bot for a main wallet. */
+export const isBotFor = (key: Hex, account: Hex) => privateKeyToAccount(key).address.toLowerCase() !== account.toLowerCase();
+
+const PERP_FOR_ABI = parseAbi([
+  'function placeOrderFor(address owner, bool isBid, uint64 userData, uint256 price, uint256 quantity, uint64 expireTimestampNs, uint8 orderType, uint8 selfMatchingOption, address builder, uint96 builderFeeBpsTimes1k)',
+]);
+// 0 = no expiry on a market order. scripts/bot-check.mts simulates the call to confirm this on the live pool.
+const BOT_EXPIRE_NS = 0n;
+
+/** The bot places an order on a perp pool for the account that granted it (it uses the account's margin). */
+async function botPlaceOrder(key: Hex, pool: Hex, owner: Hex, o: { isBid: boolean; userData: bigint; price: bigint; quantity: bigint }) {
+  const wallet = createWalletClient({ chain: hidekiTestnet, transport: http(RPC_URL), account: privateKeyToAccount(key) });
+  const pub = createPublicClient({ chain: hidekiTestnet, transport: http(RPC_URL) });
+  let hash: Hex;
+  try {
+    hash = await wallet.writeContract({
+      address: pool,
+      abi: PERP_FOR_ABI,
+      functionName: 'placeOrderFor',
+      args: [owner, o.isBid, o.userData, o.price, o.quantity, BOT_EXPIRE_NS, ORDER_TYPE_MARKET, 0, zeroAddress, 0n],
+    });
+  } catch (e) {
+    const text = e instanceof Error ? (e as { shortMessage?: string }).shortMessage ?? e.message : String(e);
+    throw new Error(`The bot could not place the order for your main wallet: ${text.replace(/\s+/g, ' ').slice(0, 240)}. Check that the bot was added for this market (grant step or the dreamDEX "Add bot" screen).`);
+  }
+  const receipt = await pub.waitForTransactionReceipt({ hash });
+  return { hash, receipt: { status: receipt.status } };
+}
+
+/** The direction of an account's position from the indexer, for when the bot signs but the account holds the position. */
+async function accountDirection(pool: string, account: string): Promise<'long' | 'short' | 'flat'> {
+  const d = await gql<{ PerpPosition: { isLong: boolean; size: string }[] }>(
+    `{ PerpPosition(limit: 1, where: {pool: {_ilike: "${pool}"}, account: {_ilike: "${account}"}}) { isLong size } }`,
+  );
+  const p = d.PerpPosition[0];
+  if (!p || BigInt(p.size) === 0n) return 'flat';
+  return p.isLong ? 'long' : 'short';
+}
+
 function baseConfig() {
   return {
     chain: hidekiTestnet,
     // Through our own server route so the browser never hits a CORS wall.
-    indexerUrl: `${window.location.origin}/api/indexer`,
+    indexerUrl: typeof window === 'undefined' ? process.env.INDEXER_URL ?? 'https://hideki-dev.smk.somnia.host/v1/graphql' : `${window.location.origin}/api/indexer`,
     wsRpcUrl: WS_URL,
     addresses: SOMNIA_HIDEKI_TESTNET_ADDRESSES,
   };
@@ -184,7 +225,8 @@ export async function enterMatch(args: {
   } catch {
     /* storage unavailable: set it again */
   }
-  if (!levDone) {
+  // Only the owner can change an account's leverage, so a bot trades with the leverage already set on the account.
+  if (!levDone && !isBotFor(key, account)) {
     try {
       await (ex.trader as unknown as { setPerpLeverage: (p: { pool: Hex; leverageX: number }) => Promise<unknown> }).setPerpLeverage({ pool: m.poolAddress, leverageX: lev });
     } catch (e) {
@@ -237,14 +279,16 @@ export async function enterMatch(args: {
   if (quantity > BigInt(max.maxQuantity)) throw new Error(`The largest order this wallet can place on ${ticker}-PERP is smaller than the stake size.`);
 
   const userData = encodeUserData(matchNumber);
-  const res = (await ex.trader.placePerpOrder({
-    pool: m.poolAddress,
-    isBid,
-    price,
-    quantity,
-    orderType: ORDER_TYPE_MARKET,
-    userData,
-  })) as unknown as { hash?: string; orderId?: bigint; receipt?: { status?: string }; fills?: { quantityFilled: bigint }[] };
+  const res = (await (isBotFor(key, account)
+    ? botPlaceOrder(key, m.poolAddress, account, { isBid, userData: BigInt(userData), price, quantity })
+    : ex.trader.placePerpOrder({
+        pool: m.poolAddress,
+        isBid,
+        price,
+        quantity,
+        orderType: ORDER_TYPE_MARKET,
+        userData,
+      }))) as unknown as { hash?: string; orderId?: bigint; receipt?: { status?: string }; fills?: { quantityFilled: bigint }[] };
 
   if (res.receipt?.status && res.receipt.status !== 'success') throw new Error('The order transaction reverted on chain.');
   const filled = (res.fills ?? []).reduce((s, f) => s + f.quantityFilled, 0n);
@@ -275,25 +319,34 @@ export async function closeMyPosition(key: Hex, address: Hex, ticker: string): P
   if (preview.closedQuantity <= 0n) return `No open ${ticker} position to close.`;
 
   // Which way the position points: the exchange helper lists positions with a symbol and a side.
-  const positions = (await (ex as unknown as { fetchPositions: () => Promise<{ symbol: string; side: string }[]> }).fetchPositions()) ?? [];
-  const mine = positions.find((p) => p.symbol.toUpperCase().startsWith(ticker.toUpperCase()));
-  if (!mine) {
-    throw new Error(`Could not find a ${ticker} position to read the side from. Positions seen: ${positions.map((p) => `${p.symbol} ${p.side}`).join(', ') || 'none'}. Nothing was sent.`);
+  let wasLong: boolean;
+  if (isBotFor(key, address)) {
+    const dir = await accountDirection(m.poolAddress, address);
+    if (dir === 'flat') return `No open ${ticker} position to close.`;
+    wasLong = dir === 'long';
+  } else {
+    const positions = (await (ex as unknown as { fetchPositions: () => Promise<{ symbol: string; side: string }[]> }).fetchPositions()) ?? [];
+    const mine = positions.find((p) => p.symbol.toUpperCase().startsWith(ticker.toUpperCase()));
+    if (!mine) {
+      throw new Error(`Could not find a ${ticker} position to read the side from. Positions seen: ${positions.map((p) => `${p.symbol} ${p.side}`).join(', ') || 'none'}. Nothing was sent.`);
+    }
+    wasLong = mine.side === 'long';
   }
-  const wasLong = mine.side === 'long';
 
   const isBid = !wasLong; // closing a long means selling
   const mark = BigInt(m.markPrice);
   const tick = BigInt(m.tickSize);
   const slipped = isBid ? (mark * (10_000n + SLIPPAGE_BPS)) / 10_000n : (mark * (10_000n - SLIPPAGE_BPS)) / 10_000n;
   const price = tick > 0n ? (slipped / tick) * tick : slipped;
-  const res = (await ex.trader.placePerpOrder({
-    pool: m.poolAddress,
-    isBid,
-    price,
-    quantity: preview.closedQuantity,
-    orderType: ORDER_TYPE_MARKET,
-  })) as unknown as { hash?: string; receipt?: { status?: string } };
+  const res = (await (isBotFor(key, address)
+    ? botPlaceOrder(key, m.poolAddress, address, { isBid, userData: 0n, price, quantity: preview.closedQuantity })
+    : ex.trader.placePerpOrder({
+        pool: m.poolAddress,
+        isBid,
+        price,
+        quantity: preview.closedQuantity,
+        orderType: ORDER_TYPE_MARKET,
+      }))) as unknown as { hash?: string; receipt?: { status?: string } };
   if (res.receipt?.status && res.receipt.status !== 'success') throw new Error('The close transaction reverted on chain.');
   return `Position closed.${res.hash ? ` Tx ${res.hash}` : ''}`;
 }
@@ -334,6 +387,11 @@ export async function hasOpenPosition(key: Hex, address: Hex, ticker: string): P
 /** Which way this wallet's position on a market points right now. */
 export async function myDirection(key: Hex, address: Hex, ticker: string): Promise<'long' | 'short' | 'flat'> {
   if (!(await hasOpenPosition(key, address, ticker))) return 'flat';
+  if (isBotFor(key, address)) {
+    const rows = (await makeExchange(key).client.listPerpMarkets()) as unknown as PerpRow[];
+    const m = rows.find((r) => r.baseSymbol === ticker);
+    return m ? accountDirection(m.poolAddress, address) : 'flat';
+  }
   const ex = makeExchange(key);
   const positions = (await (ex as unknown as { fetchPositions: () => Promise<{ symbol: string; side: string }[]> }).fetchPositions()) ?? [];
   const mine = positions.find((p) => p.symbol.toUpperCase().startsWith(ticker.toUpperCase()));

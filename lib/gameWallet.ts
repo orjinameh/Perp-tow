@@ -49,3 +49,34 @@ export function forgetGameKey() {
 export function addressOfKey(k: Hex): Hex {
   return privateKeyToAccount(k).address;
 }
+
+// The "account" is the main wallet the game wallet acts for (a bot). Only its address is stored, never its key.
+const ACCOUNT_KEY = 'tow-main-account';
+
+export function readLinkedAccount(): Hex | null {
+  try {
+    const a = window.localStorage.getItem(ACCOUNT_KEY);
+    return a && /^0x[0-9a-fA-F]{40}$/.test(a) ? (a as Hex) : null;
+  } catch {
+    return null;
+  }
+}
+
+export function linkAccount(input: string): Hex {
+  const a = input.trim();
+  if (!/^0x[0-9a-fA-F]{40}$/.test(a)) throw new Error('A wallet address is 0x followed by 40 hex characters.');
+  try {
+    window.localStorage.setItem(ACCOUNT_KEY, a);
+  } catch {
+    /* kept for this tab only */
+  }
+  return a as Hex;
+}
+
+export function unlinkAccount() {
+  try {
+    window.localStorage.removeItem(ACCOUNT_KEY);
+  } catch {
+    /* nothing to remove */
+  }
+}

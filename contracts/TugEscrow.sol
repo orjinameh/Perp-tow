@@ -37,6 +37,12 @@ contract TugEscrow {
     mapping(bytes32 => mapping(address => Side)) public sideOf;
     mapping(bytes32 => mapping(address => bool)) public claimed;
 
+    // An account can approve a bot (the game wallet in its browser). The bot may stake, leave and claim for the
+    // account, but the money only ever moves between the account and this contract: stakes are pulled from the
+    // account (which must have approved this contract), refunds and payouts always go to the account.
+    mapping(address => mapping(address => bool)) public botOf;
+    event BotSet(address indexed player, address indexed bot, bool allowed);
+
     event Joined(bytes32 indexed key, address indexed player, Side side, uint32 total);
     event Started(bytes32 indexed key, uint64 startedAt);
     event Settled(bytes32 indexed key, Result result);
@@ -53,16 +59,35 @@ contract TugEscrow {
         return keccak256(abi.encode(market, number));
     }
 
+    function setBot(address bot, bool allowed) external {
+        botOf[msg.sender][bot] = allowed;
+        emit BotSet(msg.sender, bot, allowed);
+    }
+
+    function _auth(address player) internal view {
+        require(player == msg.sender || botOf[player][msg.sender], "not allowed");
+    }
+
     function join(bytes32 key, Side side) external {
+        _join(msg.sender, key, side);
+    }
+
+    /// A bot stakes for an account that approved it. The stake is pulled from the account.
+    function joinFor(address player, bytes32 key, Side side) external {
+        _auth(player);
+        _join(player, key, side);
+    }
+
+    function _join(address player, bytes32 key, Side side) internal {
         require(side == Side.Bulls || side == Side.Bears, "side");
         Match storage m = matches[key];
         require(m.startedAt == 0, "already started");
-        require(sideOf[key][msg.sender] == Side.None, "already in");
-        sideOf[key][msg.sender] = side;
+        require(sideOf[key][player] == Side.None, "already in");
+        sideOf[key][player] = side;
         if (side == Side.Bulls) m.bulls++; else m.bears++;
-        require(token.transferFrom(msg.sender, address(this), stake), "stake transfer");
+        require(token.transferFrom(player, address(this), stake), "stake transfer");
         uint32 total = m.bulls + m.bears;
-        emit Joined(key, msg.sender, side, total);
+        emit Joined(key, player, side, total);
     }
 
     /// Operator closes the staking window (the trade window of the app) and starts the match. With fewer
@@ -79,14 +104,23 @@ contract TugEscrow {
 
     /// Before a match starts, a player can take their stake back and give up the seat.
     function leave(bytes32 key) external {
+        _leave(msg.sender, key);
+    }
+
+    function leaveFor(address player, bytes32 key) external {
+        _auth(player);
+        _leave(player, key);
+    }
+
+    function _leave(address player, bytes32 key) internal {
         Match storage m = matches[key];
         require(m.startedAt == 0, "already started");
-        Side s = sideOf[key][msg.sender];
+        Side s = sideOf[key][player];
         require(s != Side.None, "not in this match");
-        sideOf[key][msg.sender] = Side.None;
+        sideOf[key][player] = Side.None;
         if (s == Side.Bulls) m.bulls--; else m.bears--;
-        require(token.transfer(msg.sender, stake), "refund");
-        emit Left(key, msg.sender);
+        require(token.transfer(player, stake), "refund");
+        emit Left(key, player);
     }
 
     /// Operator posts who won once the match is over. A one-sided roster or a tie is a Refund.
@@ -110,9 +144,18 @@ contract TugEscrow {
     }
 
     function claim(bytes32 key) external {
+        _claim(msg.sender, key);
+    }
+
+    function claimFor(address player, bytes32 key) external {
+        _auth(player);
+        _claim(player, key);
+    }
+
+    function _claim(address player, bytes32 key) internal {
         Match storage m = matches[key];
-        Side s = sideOf[key][msg.sender];
-        require(s != Side.None && !claimed[key][msg.sender], "nothing to claim");
+        Side s = sideOf[key][player];
+        require(s != Side.None && !claimed[key][player], "nothing to claim");
         uint256 amount;
         if (_refundOpen(m)) {
             amount = stake;
@@ -124,9 +167,9 @@ contract TugEscrow {
         } else {
             revert("not settled");
         }
-        claimed[key][msg.sender] = true;
-        require(token.transfer(msg.sender, amount), "payout");
-        emit Claimed(key, msg.sender, amount);
+        claimed[key][player] = true;
+        require(token.transfer(player, amount), "payout");
+        emit Claimed(key, player, amount);
     }
 
     /// Operator collects the rake of a settled match, once.

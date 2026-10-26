@@ -16,18 +16,20 @@ export const WalletPanel: React.FC<{ wallet: GameWallet }> = ({ wallet }) => {
   const [importText, setImportText] = useState('');
   const [copied, setCopied] = useState(false);
   const [closeTicker, setCloseTicker] = useState('BTC');
+  const [mainOpen, setMainOpen] = useState(false);
+  const [mainText, setMainText] = useState('');
 
   const refreshBalance = useCallback(async () => {
     if (!wallet.address) return;
     try {
       const t = await loadTrading();
-      setStt(Number(await t.getSttBalance(wallet.address)).toFixed(3));
+      setStt(Number(await t.getSttBalance((wallet.signer ?? wallet.address) as `0x${string}`)).toFixed(3)); // gas is paid by the game wallet itself
       setUsdso(Number(await t.getUsdsoBalance(wallet.address)).toFixed(2));
     } catch {
       setStt(null);
       setUsdso(null);
     }
-  }, [wallet.address]);
+  }, [wallet.address, wallet.signer]);
 
   useEffect(() => {
     setStt(null);
@@ -112,9 +114,21 @@ export const WalletPanel: React.FC<{ wallet: GameWallet }> = ({ wallet }) => {
     }
   };
 
+  const doLink = () => {
+    try {
+      wallet.linkMain(mainText);
+      setMainText('');
+      setMainOpen(false);
+      setStatus(null);
+    } catch (e) {
+      setStatus(e instanceof Error ? e.message : String(e));
+    }
+  };
+
   const copy = () => {
-    if (wallet.address && navigator?.clipboard) {
-      navigator.clipboard.writeText(wallet.address);
+    const mine = wallet.signer ?? wallet.address;
+    if (mine && navigator?.clipboard) {
+      navigator.clipboard.writeText(mine);
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
     }
@@ -137,20 +151,29 @@ export const WalletPanel: React.FC<{ wallet: GameWallet }> = ({ wallet }) => {
         ) : (
           <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
             <button onClick={copy} className="font-mono text-zinc-200 hover:text-white" title="Copy address">
-              {copied ? 'Copied!' : `${wallet.address.slice(0, 8)}...${wallet.address.slice(-6)}`}
+              {copied ? 'Copied!' : wallet.linked ? `Bot ${wallet.signer?.slice(0, 8)}...${wallet.signer?.slice(-6)}` : `${wallet.address.slice(0, 8)}...${wallet.address.slice(-6)}`}
             </button>
+            {wallet.linked && (
+              <span>
+                Trading for main wallet <span className="font-mono text-zinc-200">{wallet.address.slice(0, 8)}...{wallet.address.slice(-6)}</span>
+              </span>
+            )}
             <span>
               Gas: <span className="font-mono text-zinc-200">{stt ?? '...'} STT</span>
             </span>
             <span>
-              USDso: <span className="font-mono text-zinc-200">{usdso ?? '...'}</span>
+              {wallet.linked ? 'Main wallet USDso' : 'USDso'}: <span className="font-mono text-zinc-200">{usdso ?? '...'}</span>
             </span>
-            <button className={btn} onClick={deposit} disabled={busy}>
-              {busy ? <span className="inline-flex items-center gap-1.5"><Spinner className="h-3 w-3" />Working…</span> : 'Deposit USDso to margin'}
-            </button>
-            <button className={btn} onClick={claim} disabled={busy}>
-              Claim paper USDso
-            </button>
+            {!wallet.linked && (
+              <>
+                <button className={btn} onClick={deposit} disabled={busy}>
+                  {busy ? <span className="inline-flex items-center gap-1.5"><Spinner className="h-3 w-3" />Working…</span> : 'Deposit USDso to margin'}
+                </button>
+                <button className={btn} onClick={claim} disabled={busy}>
+                  Claim paper USDso
+                </button>
+              </>
+            )}
             <span className="inline-flex items-center gap-1">
               <input
                 value={closeTicker}
@@ -160,8 +183,15 @@ export const WalletPanel: React.FC<{ wallet: GameWallet }> = ({ wallet }) => {
               />
               <button className={btn} onClick={closePos} disabled={busy}>Close position</button>
             </span>
-            <button className={btn} onClick={withdraw} disabled={busy}>Withdraw margin to wallet</button>
+            {!wallet.linked && <button className={btn} onClick={withdraw} disabled={busy}>Withdraw margin to wallet</button>}
             <button className={btn} onClick={refreshBalance}>Refresh</button>
+            {wallet.linked ? (
+              <button className="text-zinc-500 hover:text-amber-300 underline underline-offset-2" onClick={wallet.unlinkMain}>
+                Stop trading for my main wallet
+              </button>
+            ) : (
+              <button className={btn} onClick={() => setMainOpen((o) => !o)}>Let this game wallet trade for my main wallet</button>
+            )}
             <button
               className="text-zinc-500 hover:text-rose-300 underline underline-offset-2"
               onClick={() => {
@@ -170,6 +200,26 @@ export const WalletPanel: React.FC<{ wallet: GameWallet }> = ({ wallet }) => {
             >
               Forget wallet
             </button>
+          </div>
+        )}
+
+        {mainOpen && wallet.address && !wallet.linked && (
+          <div className="flex flex-col gap-2 rounded-xl border border-zinc-800 bg-zinc-900/60 p-3">
+            <p className="leading-relaxed">
+              <strong className="text-zinc-200">Bot mode.</strong> Your main wallet stays the player: seats, stakes, margin and winnings are all its own.
+              This game wallet only acts as its bot and can never send funds anywhere else. Give it gas (STT), then run the grant step once from your main wallet
+              (<span className="font-mono">npm run grant</span>), or add this game wallet as a bot in the dreamDEX app and approve it for the game contracts.
+              Bot address: <button onClick={copy} className="font-mono text-zinc-200 underline underline-offset-2">{wallet.signer}</button>
+            </p>
+            <div className="flex flex-wrap items-center gap-2">
+              <input
+                value={mainText}
+                onChange={(e) => setMainText(e.target.value)}
+                placeholder="Your main wallet address 0x..."
+                className="w-full sm:w-96 rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-1.5 text-xs text-white placeholder-zinc-600 focus:border-emerald-500 focus:outline-none"
+              />
+              <button className={btn} onClick={doLink}>Trade for this wallet</button>
+            </div>
           </div>
         )}
 
@@ -187,7 +237,7 @@ export const WalletPanel: React.FC<{ wallet: GameWallet }> = ({ wallet }) => {
         )}
 
         <div className="text-[11px] text-zinc-500">
-          Testnet only. The key stays in this browser. {wallet.address ? 'Send STT for gas to the address above, then claim the paper USDso.' : 'Never import a key that holds real money.'}
+          Testnet only. The key stays in this browser. {wallet.linked ? 'The bot needs STT for gas. Orders use your main wallet\'s margin and stakes come from its USDso.' : wallet.address ? 'Send STT for gas to the address above, then claim the paper USDso.' : 'Never import a key that holds real money.'}
         </div>
         {status && <div className="text-[11px] text-amber-300">{status}</div>}
       </div>
