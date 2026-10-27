@@ -235,6 +235,12 @@ export const GlobalLobby: React.FC<GlobalLobbyProps> = ({
         })}
       </div>
 
+      {failed.length > 0 && (
+        <div className="rounded-2xl border border-amber-500/40 bg-amber-500/10 p-4 text-xs text-amber-200" role="status">
+          Reconnecting to dreamDEX… {failed.join(', ')} did not load from the indexer yet. Retrying every few seconds.
+        </div>
+      )}
+
       {/* Footer Prototype Clarification Strip */}
       <div className="rounded-2xl border border-zinc-800 bg-zinc-900/40 p-5 flex flex-col sm:flex-row items-center justify-between gap-4">
         <div className="flex items-center gap-3">

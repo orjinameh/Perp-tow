@@ -52,5 +52,12 @@ export function useLiveMarkets(): LiveMarkets {
     return () => clearInterval(id);
   }, [load]);
 
+  // If some markets did not come back, or the indexer errored, try again soon instead of waiting a full minute.
+  useEffect(() => {
+    if (state.failed.length === 0 && !state.error) return;
+    const t = setTimeout(load, 10_000);
+    return () => clearTimeout(t);
+  }, [state.failed, state.error, state.updatedAt, load]);
+
   return { ...state, reload: load };
 }
