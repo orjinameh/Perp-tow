@@ -38,6 +38,7 @@ export default function SquadsPage() {
   const [lev, setLev] = useState(2);
   const [picker, setPicker] = useState(false);
   const [ticket, setTicket] = useState<SquadMatch | 'new' | null>(null);
+  const [newSize, setNewSize] = useState(4);
 
   const market = live.markets.find((m) => m.ticker === ticker);
   const me = wallet.address;
@@ -81,10 +82,10 @@ export default function SquadsPage() {
 
   const open = () => key && act('Opening a match', ['Seat + stake'], async () => {
     const n = await nextSquadNumber(ticker);
-    await enterSquad(key, ticker, n, me as Hex);
+    await enterSquad(key, ticker, n, me as Hex, Math.max(2, Math.min(newSize, params?.size ?? newSize)));
     setSelected(n);
   });
-  const join = (m: SquadMatch) => key && act('Taking your seat', ['Seat + stake'], () => enterSquad(key, ticker, m.number, me as Hex));
+  const join = (m: SquadMatch) => key && act('Taking your seat', ['Seat + stake'], () => enterSquad(key, ticker, m.number, me as Hex, m.size));
   const leave = (m: SquadMatch) => key && act('Leaving', ['Leave and refund'], () => leaveSquad(key, ticker, m.number, me as Hex));
   const confirm = (m: SquadMatch) => key && act('Confirming', ['Confirm'], () => confirmSquad(key, ticker, m.number, me as Hex));
   const finish = (m: SquadMatch) => key && act('Locking the match', ['Lock'], () => finishSquad(key, ticker, m.number));
@@ -114,7 +115,7 @@ export default function SquadsPage() {
         <Link href="/" className="underline text-sm">Back to the classic game</Link>
       </div>
       <div className="mb-4">
-        <Hall matches={matches} size={params?.size ?? 3} me={me} now={now} selected={match} onJoinRing={() => setPicker(true)} onOpenRing={() => setTicket('new')} />
+        <Hall matches={matches} size={params?.size ?? 4} me={me} now={now} selected={match} onJoinRing={() => setPicker(true)} onOpenRing={() => setTicket('new')} />
       </div>
       {picker && (
         <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4" onClick={() => setPicker(false)}>
@@ -126,7 +127,7 @@ export default function SquadsPage() {
                 const here = !!me && m.players.some((p) => p.address.toLowerCase() === me.toLowerCase());
                 return (
                   <li key={m.id} className="flex items-center justify-between border rounded p-2">
-                    <span>{m.id} · {m.players.length}/{params?.size ?? '?'} · {mmss(m.lobbyEndsAt - now)}</span>
+                    <span>{m.id} · {m.players.length}/{m.size || '?'} · {mmss(m.lobbyEndsAt - now)}</span>
                     <button className="border rounded px-3 py-1" onClick={() => { setPicker(false); setSelected(m.number); if (!here) setTicket(m); }}>{here ? 'Go to seat' : 'Join'}</button>
                   </li>
                 );
@@ -139,7 +140,8 @@ export default function SquadsPage() {
       {ticket && (() => {
         const t = ticket === 'new' ? null : ticket;
         const stakeUsd = params?.stakeUsd ?? 10;
-        const size = params?.size ?? 3;
+        const maxSize = params?.size ?? 4;
+        const size = t ? t.size : Math.max(2, Math.min(newSize, maxSize));
         const seated = t ? t.players.length : 0;
         return (
           <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4" onClick={() => setTicket(null)}>
@@ -150,7 +152,7 @@ export default function SquadsPage() {
                 <div className="flex justify-between"><dt className="opacity-70">Market</dt><dd>{ticker}-PERP, only {ticker} players</dd></div>
                 <div className="flex justify-between"><dt className="opacity-70">Stake</dt><dd>${stakeUsd.toFixed(2)} USDso, paid when you take the seat</dd></div>
                 <div className="flex justify-between"><dt className="opacity-70">Pool at a full room</dt><dd>${(stakeUsd * size).toFixed(2)}</dd></div>
-                <div className="flex justify-between"><dt className="opacity-70">Seats</dt><dd>{seated} / {size} taken</dd></div>
+                <div className="flex justify-between items-center"><dt className="opacity-70">Seats</dt><dd>{t ? `${seated} / ${size} taken` : (<select className="bg-transparent border rounded px-1" value={size} onChange={(e) => setNewSize(Number(e.target.value))}>{Array.from({ length: Math.max(1, maxSize - 1) }, (_, i) => i + 2).map((n) => <option key={n} value={n} className="text-black">{n} players</option>)}</select>)}</dd></div>
                 <div className="flex justify-between"><dt className="opacity-70">Your team</dt><dd>Drawn at random at the lock</dd></div>
                 <div className="flex justify-between"><dt className="opacity-70">Winner</dt><dd>Team with the bigger real account gain</dd></div>
                 <div className="flex justify-between"><dt className="opacity-70">Payout</dt><dd>Stake back + {Math.round((1 - (params?.rake ?? 0.2)) * 100)}% of the losers' pool</dd></div>
@@ -173,7 +175,7 @@ export default function SquadsPage() {
             {matches.map((m) => (
               <li key={m.id}>
                 <button onClick={() => setSelected(m.number)} className={`w-full text-left border rounded p-3 ${selected === m.number ? 'ring-2' : ''}`}>
-                  <span className="font-medium">{m.id}</span> · {m.players.length}/{params?.size ?? '?'} seated · <span className="opacity-70">{m.phase}</span>
+                  <span className="font-medium">{m.id}</span> · {m.players.length}/{m.size || '?'} seated · <span className="opacity-70">{m.phase}</span>
                 </button>
               </li>
             ))}

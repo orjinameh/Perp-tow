@@ -12,8 +12,8 @@ export const SQUADS_ADDRESS = (process.env.NEXT_PUBLIC_SQUADS_ADDRESS || '') as 
 export const squadsEnabled = SQUADS_ADDRESS !== '';
 
 const ABI = parseAbi([
-  'function enter(string market, uint256 number)',
-  'function enterFor(address player, address pool, string market, uint256 number)',
+  'function enter(string market, uint256 number, uint32 wantedSize)',
+  'function enterFor(address player, address pool, string market, uint256 number, uint32 wantedSize)',
   'function leave(string market, uint256 number)',
   'function leaveFor(address player, address pool, string market, uint256 number)',
   'function confirm(string market, uint256 number)',
@@ -25,8 +25,8 @@ const ABI = parseAbi([
   'function teamScores(bytes32 key) view returns (int256 red, int256 blue)',
   'function scoreOf(bytes32 key, address player) view returns (int256)',
   'function latestMatch(string market) view returns (uint256)',
-  'function roster(string market, uint256 number) view returns (address[] players, bool[] confirmed, uint8[] teams, uint64 firstAt, uint64 lockAt, bool cancelled, uint8 result)',
-  'function matches(bytes32) view returns (uint64 firstAt, uint64 lockAt, bytes32 seed, uint8 result, bool cancelled, uint256 rakeOwed)',
+  'function roster(string market, uint256 number) view returns (address[] players, bool[] confirmed, uint8[] teams, uint64 firstAt, uint64 lockAt, bool cancelled, uint8 result, uint32 cap)',
+  'function matches(bytes32) view returns (uint64 firstAt, uint64 lockAt, bytes32 seed, uint8 result, bool cancelled, uint256 rakeOwed, uint32 cap)',
   'function claimed(bytes32, address) view returns (bool)',
   'function size() view returns (uint32)',
   'function minPlayers() view returns (uint32)',
@@ -46,7 +46,7 @@ const read = <T,>(functionName: string, args: unknown[] = []) =>
 export const squadKey = (ticker: string, number: number): Hex => keccak256(encodeAbiParameters([{ type: 'string' }, { type: 'uint256' }], [ticker, BigInt(number)]));
 
 export interface SquadParams {
-  size: number;
+  size: number; // the most seats a match may have
   minPlayers: number;
   lobbySeconds: number;
   confirmSeconds: number;
@@ -77,6 +77,7 @@ export interface SquadMatch {
   id: string; // "BTC #3"
   ticker: string;
   number: number;
+  size: number; // seats in this match, chosen by its host
   players: { address: string; confirmed: boolean; team: 0 | 1 | 2 }[];
   phase: SquadPhase;
   firstAt: number;
@@ -101,7 +102,7 @@ export async function loadSquadMatches(ticker: string, window = 20): Promise<Squ
   const now = nowSec();
   const rows = await Promise.all(
     nums.map(async (number) => {
-      const [players, confirmed, teams, firstAt, lockAt, cancelled, result] = await read<readonly [readonly Hex[], readonly boolean[], readonly number[], bigint, bigint, boolean, number]>('roster', [ticker, BigInt(number)]);
+      const [players, confirmed, teams, firstAt, lockAt, cancelled, result, cap] = await read<readonly [readonly Hex[], readonly boolean[], readonly number[], bigint, bigint, boolean, number, number]>('roster', [ticker, BigInt(number)]);
       const first = Number(firstAt);
       const lock = Number(lockAt);
       const lobbyEndsAt = first ? first + p.lobbySeconds : 0;
@@ -115,7 +116,7 @@ export async function loadSquadMatches(ticker: string, window = 20): Promise<Squ
       else phase = 'finishable'; // anyone can finish it
       const list = players.map((a, i) => ({ address: a as string, confirmed: confirmed[i], team: Number(teams[i]) as 0 | 1 | 2 }));
       return {
-        id: `${ticker} #${number}`, ticker, number, players: list, phase, firstAt: first, lockAt: lock, endsAt, lobbyEndsAt, confirmEndsAt,
+        id: `${ticker} #${number}`, ticker, number, size: Number(cap), players: list, phase, firstAt: first, lockAt: lock, endsAt, lobbyEndsAt, confirmEndsAt,
         result: Number(result) as SquadMatch['result'], red: list.filter((x) => x.team === 1).length, blue: list.filter((x) => x.team === 2).length,
       } satisfies SquadMatch;
     }),
@@ -138,6 +139,7 @@ function friendly(e: unknown): Error {
   const text = (err.shortMessage ?? err.message ?? String(e)).replace(/\s+/g, ' ');
   if (/not allowed/i.test(text)) return new Error('This game wallet is not added as a bot for your main wallet yet. Add it in the dreamDEX app ("Add bot", Perps ticked) and try again.');
   if (/lobby is closed/i.test(text)) return new Error('This lobby has closed. Open or join a newer match.');
+  if (/bad match size/i.test(text)) return new Error('That match size is not allowed. Pick between 2 and the maximum.');
   if (/match is full/i.test(text)) return new Error('This match is already full. Open a new match.');
   if (/already in/i.test(text)) return new Error('This wallet already has a seat in this match.');
   if (/match number too high/i.test(text)) return new Error('That match number is not next in line. Reload and try again.');
@@ -164,7 +166,7 @@ async function send(key: Hex, fn: string, args: unknown[]) {
 }
 
 /** Takes a seat and stakes. With `player` set, the game wallet acts as that account's bot and pays the stake itself. */
-export async function enterSquad(key: Hex, ticker: string, number: number, player?: Hex): Promise<string> {
+export async function enterSquad(key: Hex, ticker: string, number: number, player?: Hex, size = 0): Promise<string> {
   if (!squadsEnabled) throw new Error('The squads contract is not set up yet.');
   const payer = privateKeyToAccount(key).address;
   const p = await readSquadParams();
@@ -175,9 +177,9 @@ export async function enterSquad(key: Hex, ticker: string, number: number, playe
   if (allowance < stake) await send2(key, USDSO, ERC20, 'approve', [SQUADS_ADDRESS, stake * 100n]);
   if (forOther(key, player)) {
     const pool = await (await import('./pools')).poolOf(ticker);
-    return send(key, 'enterFor', [player, pool, ticker, BigInt(number)]);
+    return send(key, 'enterFor', [player, pool, ticker, BigInt(number), size]);
   }
-  return send(key, 'enter', [ticker, BigInt(number)]);
+  return send(key, 'enter', [ticker, BigInt(number), size]);
 }
 
 async function send2(key: Hex, to: Hex, abi: unknown, fn: string, args: unknown[]) {

@@ -78,7 +78,7 @@ export const SquadsHall3D: React.FC<Props> = (props) => {
         const col = i % 5, row = Math.floor(i / 5);
         const left = m.phase === 'filling' ? m.lobbyEndsAt - now : m.phase === 'confirming' ? m.confirmEndsAt - now : m.phase === 'trading' ? m.endsAt - now : 0;
         const t = left > 0 ? `${Math.floor(left / 60)}:${String(Math.floor(left % 60)).padStart(2, '0')}` : m.phase;
-        const p = new THREE.Mesh(new THREE.PlaneGeometry(2.2, 1.1), new THREE.MeshBasicMaterial({ map: label([m.id, `${m.players.length}/${size} seated`, `${m.phase} ${left > 0 ? t : ''}`], 440, 220, m.phase === 'filling' ? '#14532d' : '#1f2937') }));
+        const p = new THREE.Mesh(new THREE.PlaneGeometry(2.2, 1.1), new THREE.MeshBasicMaterial({ map: label([m.id, `${m.players.length}/${m.size || size} seated`, `${m.phase} ${left > 0 ? t : ''}`], 440, 220, m.phase === 'filling' ? '#14532d' : '#1f2937') }));
         p.position.set((col - 2) * 2.4, 6.2 - row * 1.3, -7); wall.add(p);
       });
       if (!matches.length) {
@@ -87,7 +87,7 @@ export const SquadsHall3D: React.FC<Props> = (props) => {
       }
       clear(seats);
       if (selected) {
-        const n = Math.max(size, selected.players.length);
+        const n = Math.max(selected.size || size, selected.players.length);
         const rim = new THREE.Mesh(new THREE.RingGeometry(1.9, 2.0, 48), new THREE.MeshBasicMaterial({ color: 0x94a3b8, side: THREE.DoubleSide }));
         rim.rotation.x = -Math.PI / 2; rim.position.y = 0.03; seats.add(rim);
         for (let i = 0; i < n; i++) {

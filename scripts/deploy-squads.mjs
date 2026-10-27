@@ -25,7 +25,7 @@ if (errs.length) throw new Error(errs.map((e) => e.formattedMessage).join('\n'))
 const c = out.contracts['TugSquads.sol'].TugSquads;
 
 const num = (name, dflt) => (Number(process.env[name]) > 0 ? Number(process.env[name]) : dflt);
-const size = num('NEXT_PUBLIC_MATCH_SIZE', 20);
+const size = num('NEXT_PUBLIC_MATCH_SIZE', 20); // the MOST seats a match may have: each host picks 2..size when opening a room
 const minPlayers = num('NEXT_PUBLIC_MIN_PLAYERS', 2);
 const lobby = num('NEXT_PUBLIC_LOBBY_SECONDS', 300);
 const confirmSecs = num('NEXT_PUBLIC_CONFIRM_SECONDS', 60);

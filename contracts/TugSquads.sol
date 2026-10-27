@@ -41,12 +41,13 @@ contract TugSquads {
         uint8 result;     // 0 pending, 1 team Red won, 2 team Blue won, 3 refund
         bool cancelled;   // lobby ended without enough players: every stake is refundable
         uint256 rakeOwed;
+        uint32 cap;       // seats in THIS match, chosen by whoever opens it
     }
 
     IERC20 public immutable token;
     address public immutable operator;
     uint256 public immutable stake;
-    uint32 public immutable size;            // seats per match
+    uint32 public immutable size;            // the most seats any match may have (the host picks the size of each match, 2..size)
     uint32 public immutable minPlayers;      // fewest players that can play a partly filled lobby
     uint64 public immutable lobbySeconds;    // lobby stays open this long after its first seat
     uint64 public immutable confirmSeconds;  // "continue with fewer players" window
@@ -131,17 +132,18 @@ contract TugSquads {
     }
 
     /// Take a seat and stake. The stake is pulled from the caller.
-    function enter(string calldata market, uint256 number) external {
-        _enter(msg.sender, msg.sender, market, number);
+    /// `wantedSize` is how many seats the match has. Only the player who opens the match sets it; everyone else's is ignored.
+    function enter(string calldata market, uint256 number, uint32 wantedSize) external {
+        _enter(msg.sender, msg.sender, market, number, wantedSize);
     }
 
     /// A bot takes a seat for an account it may act for. The BOT pays the stake; seat, refund and payout belong to the account.
-    function enterFor(address player, address pool, string calldata market, uint256 number) external {
+    function enterFor(address player, address pool, string calldata market, uint256 number, uint32 wantedSize) external {
         _auth(player, pool);
-        _enter(player, msg.sender, market, number);
+        _enter(player, msg.sender, market, number, wantedSize);
     }
 
-    function _enter(address player, address payer, string calldata market, uint256 number) internal {
+    function _enter(address player, address payer, string calldata market, uint256 number, uint32 wantedSize) internal {
         require(number >= 1, "match number");
         bytes32 mh = keccak256(bytes(market));
         // numbers run in order: nobody can jump the counter far ahead and hide the real lobbies
@@ -149,8 +151,12 @@ contract TugSquads {
         bytes32 key = keccak256(abi.encode(market, number));
         Match storage m = matches[key];
         require(!inMatch[key][player], "already in this match");
-        require(_seats[key].length < size, "match is full");
-        if (m.firstAt == 0) m.firstAt = uint64(block.timestamp);
+        if (m.firstAt == 0) {
+            require(wantedSize >= 2 && wantedSize >= minPlayers && wantedSize <= size, "bad match size");
+            m.cap = wantedSize;
+            m.firstAt = uint64(block.timestamp);
+        }
+        require(_seats[key].length < m.cap, "match is full");
         require(m.lockAt == 0 && !m.cancelled && block.timestamp < m.firstAt + lobbySeconds, "lobby is closed");
         inMatch[key][player] = true;
         _seats[key].push(Seat(player, false));
@@ -158,7 +164,7 @@ contract TugSquads {
         require(token.transferFrom(payer, address(this), stake), "stake transfer");
         uint32 seat = uint32(_seats[key].length);
         emit Entered(mh, number, player, seat);
-        if (seat == size) _lock(key, mh, number, size); // a full match locks at once
+        if (seat == m.cap) _lock(key, mh, number, m.cap); // a full match locks at once
     }
 
     /// Give up a seat while the lobby is open. The stake comes back.
@@ -244,7 +250,7 @@ contract TugSquads {
         m.seed = keccak256(abi.encode(blockhash(block.number - 1), key, players, block.timestamp));
         // snapshot each playing account's real equity so the end can be compared with it
         Seat[] storage s = _seats[key];
-        bool full = s.length == size;
+        bool full = s.length == m.cap;
         for (uint256 i = 0; i < s.length; i++) {
             if (!full && !s[i].confirmed) continue;
             startEquity[key][s[i].player] = _equity(s[i].player);
@@ -260,7 +266,7 @@ contract TugSquads {
         Match storage m = matches[key];
         if (m.lockAt == 0 || m.cancelled || !inMatch[key][player]) return 0;
         Seat[] storage s = _seats[key];
-        bool full = s.length == size;
+        bool full = s.length == m.cap;
         uint256 n;
         uint256 rank;
         bytes32 mine = keccak256(abi.encode(m.seed, player));
@@ -399,7 +405,7 @@ contract TugSquads {
     function roster(string calldata market, uint256 number)
         external
         view
-        returns (address[] memory players, bool[] memory confirmed, uint8[] memory teams, uint64 firstAt, uint64 lockAt, bool cancelled, uint8 result)
+        returns (address[] memory players, bool[] memory confirmed, uint8[] memory teams, uint64 firstAt, uint64 lockAt, bool cancelled, uint8 result, uint32 cap)
     {
         bytes32 key = keccak256(abi.encode(market, number));
         Seat[] storage s = _seats[key];
@@ -412,6 +418,6 @@ contract TugSquads {
             teams[i] = teamOf(key, s[i].player);
         }
         Match storage m = matches[key];
-        return (players, confirmed, teams, m.firstAt, m.lockAt, m.cancelled, m.result);
+        return (players, confirmed, teams, m.firstAt, m.lockAt, m.cancelled, m.result, m.cap);
     }
 }
