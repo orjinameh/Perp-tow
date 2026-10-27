@@ -2,6 +2,7 @@
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
+import dynamic from 'next/dynamic';
 import { useGameWallet } from '@/lib/useGameWallet';
 import { useLiveMarkets } from '@/lib/useLiveMarkets';
 import { useProgress } from '@/lib/useProgress';
@@ -14,6 +15,8 @@ import { PlayerScore, loadScores, teamScore, winner } from '@/lib/score';
 import { enterMatch, closeMyPosition, myDirection } from '@/lib/trading';
 import { nowSec } from '@/lib/clock';
 import { leverageChoices } from '@/lib/gameTag';
+
+const Hall = dynamic(() => import('@/components/SquadsHall3D').then((m) => m.SquadsHall3D), { ssr: false, loading: () => <div className="h-[420px] flex items-center justify-center text-sm opacity-70">Building the hall…</div> });
 
 type Hex = `0x${string}`;
 const short = (a: string) => `${a.slice(0, 6)}…${a.slice(-4)}`;
@@ -35,6 +38,7 @@ export default function SquadsPage() {
   const [side, setSide] = useState<'bulls' | 'bears'>('bulls');
   const [margin, setMargin] = useState(10);
   const [lev, setLev] = useState(2);
+  const [picker, setPicker] = useState(false);
 
   const market = live.markets.find((m) => m.ticker === ticker);
   const me = wallet.address;
@@ -113,6 +117,29 @@ export default function SquadsPage() {
         <button className="border rounded px-3 py-1" onClick={open} disabled={!key || !me}>Open a new match (${params?.stakeUsd ?? 10} stake)</button>
         <Link href="/" className="underline text-sm">Back to the classic game</Link>
       </div>
+      <div className="mb-4">
+        <Hall matches={matches} size={params?.size ?? 3} me={me} now={now} selected={match} onJoinRing={() => setPicker(true)} onOpenRing={open} />
+      </div>
+      {picker && (
+        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4" onClick={() => setPicker(false)}>
+          <div className="bg-zinc-900 text-white rounded p-4 w-full max-w-md max-h-[80vh] overflow-auto" onClick={(e) => e.stopPropagation()}>
+            <h2 className="font-semibold mb-2">Open rooms on {ticker}</h2>
+            {!matches.filter((m) => m.phase === 'filling').length && <p className="text-sm opacity-70">No room is open right now. Step on the other ring to open one.</p>}
+            <ul className="space-y-2">
+              {matches.filter((m) => m.phase === 'filling').map((m) => {
+                const here = !!me && m.players.some((p) => p.address.toLowerCase() === me.toLowerCase());
+                return (
+                  <li key={m.id} className="flex items-center justify-between border rounded p-2">
+                    <span>{m.id} · {m.players.length}/{params?.size ?? '?'} · {mmss(m.lobbyEndsAt - now)}</span>
+                    <button className="border rounded px-3 py-1" onClick={() => { setPicker(false); setSelected(m.number); if (!here) join(m); }}>{here ? 'Go to seat' : 'Join'}</button>
+                  </li>
+                );
+              })}
+            </ul>
+            <button className="mt-3 underline text-sm" onClick={() => setPicker(false)}>Close</button>
+          </div>
+        </div>
+      )}
       {error && <p className="text-red-500 text-sm mb-3">{error}</p>}
       <div className="grid md:grid-cols-[1fr_320px] gap-6">
         <div>
