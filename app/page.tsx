@@ -41,6 +41,11 @@ const World3D = dynamic(() => import('@/components/World3D').then((m) => m.World
 });
 
 export default function TugOfWarApp() {
+  // When the squads game is deployed it is the main game: random teams, free trading. `/?classic=1` keeps the old one.
+  useEffect(() => {
+    if (process.env.NEXT_PUBLIC_SQUADS_ADDRESS && !new URLSearchParams(window.location.search).has('classic')) window.location.replace('/squads');
+  }, []);
+
   // Step 1 Initial UI state according to specification
   const [screen, setScreen] = useState<PrototypeScreen>('lobby');
   const [selectedAsset, setSelectedAsset] = useState<CryptoAsset | null>(null);

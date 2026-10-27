@@ -112,7 +112,7 @@ export default function SquadsPage() {
           {(live.markets.length ? live.markets.map((m) => m.ticker) : ['BTC']).map((t) => <option key={t}>{t}</option>)}
         </select>
         <button className="border rounded px-3 py-1" onClick={() => setTicket('new')} disabled={!key || !me}>Open a new match (${params?.stakeUsd ?? 10} stake)</button>
-        <Link href="/" className="underline text-sm">Back to the classic game</Link>
+        <Link href="/?classic=1" className="underline text-sm">Old direction-based game</Link>
       </div>
       <div className="mb-4">
         <Hall matches={matches} size={params?.size ?? 4} me={me} now={now} selected={match} onJoinRing={() => setPicker(true)} onOpenRing={() => setTicket('new')} />
