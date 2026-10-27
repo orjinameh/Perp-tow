@@ -12,7 +12,8 @@
     "settle": "tsx scripts/settle.mts",
     "operator": "node --env-file=.env.local --import tsx scripts/operator.mts",
     "deploy:registry": "node --env-file=.env.local scripts/deploy-registry.mjs",
-    "bot-check": "node --env-file=.env.local --import tsx scripts/bot-check.mts"
+    "bot-check": "node --env-file=.env.local --import tsx scripts/bot-check.mts",
+    "deploy:squads": "node --env-file=.env.local scripts/deploy-squads.mjs"
   },
   "dependencies": {
     "@somnia-chain/markets-sdk": "0.32.1",

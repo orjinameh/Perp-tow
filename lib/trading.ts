@@ -3,6 +3,7 @@ import { hidekiTestnet } from '@somnia-chain/markets-sdk/chains';
 import { createPublicClient, createWalletClient, formatEther, formatUnits, http, parseAbi, zeroAddress } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { gql } from './indexer';
+import { nowSec } from './clock';
 import { PositionSide } from './types';
 import { encodeUserData, LEVERAGE } from './gameTag';
 
@@ -45,7 +46,8 @@ const PERP_FOR_ABI = parseAbi([
   'function placeOrderFor(address owner, bool isBid, uint64 userData, uint256 price, uint256 quantity, uint64 expireTimestampNs, uint8 orderType, uint8 selfMatchingOption, address builder, uint96 builderFeeBpsTimes1k)',
 ]);
 // 0 = no expiry on a market order. scripts/bot-check.mts simulates the call to confirm this on the live pool.
-const BOT_EXPIRE_NS = 0n;
+// The pool rejects expiry 0 for delegated orders (bot-check: reverted 0x3154078e) and accepts a future time. Use chain time + 1 hour, in nanoseconds.
+const botExpireNs = () => BigInt(Math.floor(nowSec()) + 3600) * 1_000_000_000n;
 
 /** The bot places an order on a perp pool for the account that granted it (it uses the account's margin). */
 async function botPlaceOrder(key: Hex, pool: Hex, owner: Hex, o: { isBid: boolean; userData: bigint; price: bigint; quantity: bigint }) {
@@ -57,7 +59,7 @@ async function botPlaceOrder(key: Hex, pool: Hex, owner: Hex, o: { isBid: boolea
       address: pool,
       abi: PERP_FOR_ABI,
       functionName: 'placeOrderFor',
-      args: [owner, o.isBid, o.userData, o.price, o.quantity, BOT_EXPIRE_NS, ORDER_TYPE_MARKET, 0, zeroAddress, 0n],
+      args: [owner, o.isBid, o.userData, o.price, o.quantity, botExpireNs(), ORDER_TYPE_MARKET, 0, zeroAddress, 0n],
     });
   } catch (e) {
     const text = e instanceof Error ? (e as { shortMessage?: string }).shortMessage ?? e.message : String(e);
