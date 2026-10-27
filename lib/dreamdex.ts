@@ -64,6 +64,8 @@ async function fetchCandles(pool: string, sinceUnix: number): Promise<MarketCand
 
 /** Loads live data for every registered dreamDEX perp market. Markets that fail to load are listed in `failed`. */
 export async function loadMarkets(): Promise<{ markets: MarketQueueData[]; failed: CryptoAsset[] }> {
+  // Both market queries go out together instead of one after the other.
+  const limitsQuery = gql<{ Market: { id: string; initialMarginBps: number | string | null }[] }>(`{ Market(where: {perpRegistered: {_eq: true}}, limit: 100) { id initialMarginBps } }`).catch(() => null);
   const d = await gql<{ Market: RawMarket[] }>(`{ Market(
     where: {perpRegistered: {_eq: true}}, limit: 100
   ) { id baseSymbol baseDecimals lastPrice indexPrice openInterest } }`);
@@ -71,7 +73,8 @@ export async function loadMarkets(): Promise<{ markets: MarketQueueData[]; faile
   // Each market's own limit: max leverage = 10000 / initial margin (in basis points).
   const maxLev = new Map<string, number>();
   try {
-    const m = await gql<{ Market: { id: string; initialMarginBps: number | string | null }[] }>(`{ Market(where: {perpRegistered: {_eq: true}}, limit: 100) { id initialMarginBps } }`);
+    const m = await limitsQuery;
+    if (!m) throw new Error('limits unavailable');
     for (const r of m.Market) {
       const bps = Number(r.initialMarginBps);
       if (bps > 0) maxLev.set(r.id, Math.floor(10_000 / bps));
@@ -118,7 +121,7 @@ export async function loadMarkets(): Promise<{ markets: MarketQueueData[]; faile
   // Load a few markets at a time so we do not hammer the public indexer.
   const queue = [...d.Market];
   await Promise.all(
-    Array.from({ length: 5 }, async () => {
+    Array.from({ length: 12 }, async () => {
       for (let raw = queue.shift(); raw; raw = queue.shift()) await build(raw);
     }),
   );
