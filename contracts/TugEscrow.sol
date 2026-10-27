@@ -6,6 +6,11 @@ interface IERC20 {
     function transferFrom(address from, address to, uint256 amount) external returns (bool);
 }
 
+interface IOperatorPermissions {
+    function isApprovedForPool(address pool, address owner, address operator, bytes4 selector) external view returns (bool);
+    function isGloballyApproved(address owner, address operator, bytes4 selector) external view returns (bool);
+}
+
 /// Escrow for the Perp Tug of War game. Players deposit a fixed stake on a side; when the
 /// roster is full the match starts; after `duration` the operator posts the result; winners
 /// split the losing pool minus a rake: payout = e + (1 - r) * e * L / W.
@@ -31,15 +36,16 @@ contract TugEscrow {
     uint64 public immutable duration;    // seconds a match runs
     uint64 public immutable graceAfter;  // seconds after the end before refunds open
     uint16 public immutable rakeBps;     // r, 2000 = 20%
+    IOperatorPermissions public immutable perms; // dreamDEX's bot permission registry (0 = not used)
+    bytes4 internal constant PLACE_ORDER_FOR = 0x80054449;
 
     // key: keccak256(market symbol, match number)
     mapping(bytes32 => Match) public matches;
     mapping(bytes32 => mapping(address => Side)) public sideOf;
     mapping(bytes32 => mapping(address => bool)) public claimed;
 
-    // An account can approve a bot (the game wallet in its browser). The bot may stake, leave and claim for the
-    // account, but the money only ever moves between the account and this contract: stakes are pulled from the
-    // account (which must have approved this contract), refunds and payouts always go to the account.
+    // An account can approve a bot (the game wallet in its browser), here or through dreamDEX's "Add bot". The bot
+    // may stake, leave and claim for the account. It pays the stake itself; refunds and payouts always go to the account.
     mapping(address => mapping(address => bool)) public botOf;
     event BotSet(address indexed player, address indexed bot, bool allowed);
 
@@ -49,10 +55,11 @@ contract TugEscrow {
     event Left(bytes32 indexed key, address indexed player);
     event Claimed(bytes32 indexed key, address indexed player, uint256 amount);
 
-    constructor(IERC20 _token, uint256 _stake, uint32 _size, uint64 _duration, uint64 _graceAfter, uint16 _rakeBps) {
+    constructor(IERC20 _token, uint256 _stake, uint32 _size, uint64 _duration, uint64 _graceAfter, uint16 _rakeBps, address _perms) {
         require(_size >= 2 && _rakeBps <= 3000, "bad params");
         token = _token; operator = msg.sender; stake = _stake; size = _size;
         duration = _duration; graceAfter = _graceAfter; rakeBps = _rakeBps;
+        perms = IOperatorPermissions(_perms);
     }
 
     function keyOf(string calldata market, uint256 number) public pure returns (bytes32) {
@@ -64,28 +71,35 @@ contract TugEscrow {
         emit BotSet(msg.sender, bot, allowed);
     }
 
-    function _auth(address player) internal view {
-        require(player == msg.sender || botOf[player][msg.sender], "not allowed");
+    function _auth(address player, address pool) internal view {
+        if (player == msg.sender || botOf[player][msg.sender]) return;
+        // dreamDEX's own "Add bot" permission counts too: a bot that may place orders for the account may act for it here
+        if (address(perms) != address(0)) {
+            if (perms.isGloballyApproved(player, msg.sender, PLACE_ORDER_FOR)) return;
+            if (pool != address(0) && perms.isApprovedForPool(pool, player, msg.sender, PLACE_ORDER_FOR)) return;
+        }
+        revert("not allowed");
     }
 
     function join(bytes32 key, Side side) external {
-        _join(msg.sender, key, side);
+        _join(msg.sender, msg.sender, key, side);
     }
 
-    /// A bot stakes for an account that approved it. The stake is pulled from the account.
-    function joinFor(address player, bytes32 key, Side side) external {
-        _auth(player);
-        _join(player, key, side);
+    /// A bot stakes for an account that approved it. The BOT pays the stake from its own balance; the seat, any
+    /// refund and any payout belong to the account, so the bot can never take the account's tokens.
+    function joinFor(address player, address pool, bytes32 key, Side side) external {
+        _auth(player, pool);
+        _join(player, msg.sender, key, side);
     }
 
-    function _join(address player, bytes32 key, Side side) internal {
+    function _join(address player, address payer, bytes32 key, Side side) internal {
         require(side == Side.Bulls || side == Side.Bears, "side");
         Match storage m = matches[key];
         require(m.startedAt == 0, "already started");
         require(sideOf[key][player] == Side.None, "already in");
         sideOf[key][player] = side;
         if (side == Side.Bulls) m.bulls++; else m.bears++;
-        require(token.transferFrom(player, address(this), stake), "stake transfer");
+        require(token.transferFrom(payer, address(this), stake), "stake transfer");
         uint32 total = m.bulls + m.bears;
         emit Joined(key, player, side, total);
     }
@@ -107,8 +121,8 @@ contract TugEscrow {
         _leave(msg.sender, key);
     }
 
-    function leaveFor(address player, bytes32 key) external {
-        _auth(player);
+    function leaveFor(address player, address pool, bytes32 key) external {
+        _auth(player, pool);
         _leave(player, key);
     }
 
@@ -147,8 +161,8 @@ contract TugEscrow {
         _claim(msg.sender, key);
     }
 
-    function claimFor(address player, bytes32 key) external {
-        _auth(player);
+    function claimFor(address player, address pool, bytes32 key) external {
+        _auth(player, pool);
         _claim(player, key);
     }
 

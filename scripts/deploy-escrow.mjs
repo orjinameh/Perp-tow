@@ -34,7 +34,7 @@ const pub = createPublicClient({ chain: hidekiTestnet, transport: http('https://
 const hash = await wallet.deployContract({
   abi: c.abi,
   bytecode: `0x${c.evm.bytecode.object}`,
-  args: [USDSO, parseUnits('10', 18), size, BigInt(duration), 3600n, 2000],
+  args: [USDSO, parseUnits('10', 18), size, BigInt(duration), 3600n, 2000, process.env.DREAMDEX_PERMISSIONS_REGISTRY ?? '0x6B2FbfeD328FF5F20C0BE7D3C3437613aFFE8D3a'],
 });
 const rc = await pub.waitForTransactionReceipt({ hash });
 console.log(`size ${size}, ${duration}s, stake 10 USDso, rake 20%`);

@@ -54,9 +54,10 @@ Players create or import a testnet game wallet in the page. Use a key that holds
 
 The game wallet in the browser can act as a bot for your main wallet, the same idea as dreamDEX's "Add bot".
 
-- Your main wallet stays the player: seats, stakes, perp margin and winnings all belong to it.
-- The game wallet only signs. It can place and cancel perp orders on your account, take seats, stake and claim for you, and nothing else. Stakes are pulled from your main wallet up to a budget you set, and refunds and payouts always go back to it.
-- Run `npm run grant -- <game wallet address> BTC ETH` once with your main wallet's key in `OWNER_KEY`, then `npm run bot-check -- <main address> <game wallet address> BTC` to test it without sending anything.
+- Add the game wallet as a bot in the dreamDEX app ("Add bot", Perps ticked). The game contracts accept dreamDEX's own permission, so there is nothing else to approve.
+- Your main wallet stays the player: seats, perp margin and winnings belong to it. The bot places orders against the main wallet's margin.
+- The bot pays each $10 stake from its own USDso. Refunds and payouts always go to the main wallet. The bot can never send funds anywhere else.
+- The page shows a live checklist: bot added, gas, stake money.
 - The tab must stay open, as with manual play.
 
 ## Notes and limits

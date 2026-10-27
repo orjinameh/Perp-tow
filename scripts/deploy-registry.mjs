@@ -30,7 +30,7 @@ const RPC = 'https://api.hideki2.infra.testnet.somnia.network';
 const wallet = createWalletClient({ account: privateKeyToAccount(key), chain: hidekiTestnet, transport: http(RPC) });
 const pub = createPublicClient({ chain: hidekiTestnet, transport: http(RPC) });
 
-const hash = await wallet.deployContract({ abi: c.abi, bytecode: `0x${c.evm.bytecode.object}`, args: [size, BigInt(lobby), BigInt(confirmSecs)] });
+const hash = await wallet.deployContract({ abi: c.abi, bytecode: `0x${c.evm.bytecode.object}`, args: [size, BigInt(lobby), BigInt(confirmSecs), process.env.DREAMDEX_PERMISSIONS_REGISTRY ?? '0x6B2FbfeD328FF5F20C0BE7D3C3437613aFFE8D3a'] });
 const rc = await pub.waitForTransactionReceipt({ hash });
 console.log(`Registry deployed: ${size} players per match, lobby ${lobby}s, confirm window ${confirmSecs}s.`);
 console.log(`Tx: https://explorer.testnet.somnia.network/tokyo/tx/${hash}`);

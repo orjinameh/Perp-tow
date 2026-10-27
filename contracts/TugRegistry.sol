@@ -5,10 +5,17 @@ pragma solidity ^0.8.20;
 /// which match and on which side, enforces the seat limit, and handles the "continue?" step when a
 /// lobby ends without being full. The app derives every phase (filling, confirming, opening,
 /// running) from the timestamps stored here.
+interface IOperatorPermissions {
+    function isApprovedForPool(address pool, address owner, address operator, bytes4 selector) external view returns (bool);
+    function isGloballyApproved(address owner, address operator, bytes4 selector) external view returns (bool);
+}
+
 contract TugRegistry {
     uint32 public immutable size;
     uint64 public immutable lobbySeconds;   // how long a lobby stays open after its first player
     uint64 public immutable confirmSeconds; // how long players have to say "continue" if it is not full
+    IOperatorPermissions public immutable perms; // dreamDEX's bot permission registry (0 = not used)
+    bytes4 internal constant PLACE_ORDER_FOR = 0x80054449;
 
     struct Seat {
         address player;
@@ -32,11 +39,12 @@ contract TugRegistry {
     event Confirmed(bytes32 indexed marketHash, uint256 indexed matchNumber, address indexed player);
     event Left(bytes32 indexed marketHash, uint256 indexed matchNumber, address indexed player);
 
-    constructor(uint32 _size, uint64 _lobbySeconds, uint64 _confirmSeconds) {
+    constructor(uint32 _size, uint64 _lobbySeconds, uint64 _confirmSeconds, address _perms) {
         require(_size >= 2, "size");
         size = _size;
         lobbySeconds = _lobbySeconds;
         confirmSeconds = _confirmSeconds;
+        perms = IOperatorPermissions(_perms);
     }
 
     function setBot(address bot, bool allowed) external {
@@ -44,8 +52,14 @@ contract TugRegistry {
         emit BotSet(msg.sender, bot, allowed);
     }
 
-    function _auth(address player) internal view {
-        require(player == msg.sender || botOf[player][msg.sender], "not allowed");
+    function _auth(address player, address pool) internal view {
+        if (player == msg.sender || botOf[player][msg.sender]) return;
+        // dreamDEX's own "Add bot" permission counts too: a bot that may place orders for the account may act for it here
+        if (address(perms) != address(0)) {
+            if (perms.isGloballyApproved(player, msg.sender, PLACE_ORDER_FOR)) return;
+            if (pool != address(0) && perms.isApprovedForPool(pool, player, msg.sender, PLACE_ORDER_FOR)) return;
+        }
+        revert("not allowed");
     }
 
     function enter(string calldata market, uint256 matchNumber, uint8 side) external {
@@ -53,8 +67,8 @@ contract TugRegistry {
     }
 
     /// A bot takes a seat for an account that approved it.
-    function enterFor(address player, string calldata market, uint256 matchNumber, uint8 side) external {
-        _auth(player);
+    function enterFor(address player, address pool, string calldata market, uint256 matchNumber, uint8 side) external {
+        _auth(player, pool);
         _enter(player, market, matchNumber, side);
     }
 
@@ -87,8 +101,8 @@ contract TugRegistry {
         _confirm(msg.sender, market, matchNumber);
     }
 
-    function confirmFor(address player, string calldata market, uint256 matchNumber) external {
-        _auth(player);
+    function confirmFor(address player, address pool, string calldata market, uint256 matchNumber) external {
+        _auth(player, pool);
         _confirm(player, market, matchNumber);
     }
 
@@ -114,8 +128,8 @@ contract TugRegistry {
         _leave(msg.sender, market, matchNumber);
     }
 
-    function leaveFor(address player, string calldata market, uint256 matchNumber) external {
-        _auth(player);
+    function leaveFor(address player, address pool, string calldata market, uint256 matchNumber) external {
+        _auth(player, pool);
         _leave(player, market, matchNumber);
     }
 

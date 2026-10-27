@@ -1,6 +1,6 @@
 // Checks, without sending anything, that the bot setup works:
 //   npm run bot-check -- <main wallet address> <game wallet address> BTC
-// It reads the approvals and then simulates the bot's placeOrderFor call on the live pool (an eth_call).
+// It reads dreamDEX's bot permission and the balances, then simulates the bot's placeOrderFor call on the live pool (an eth_call).
 import { createPublicClient, http, parseAbi, formatEther, formatUnits, zeroAddress, isAddress } from 'viem';
 import { generatePrivateKey } from 'viem/accounts';
 import { SOMNIA_HIDEKI_TESTNET_ADDRESSES, SomniaMarkets } from '@somnia-chain/markets-sdk';
@@ -20,20 +20,24 @@ const say = (s: string) => {
   console.log(s);
 };
 
-const botOfAbi = parseAbi(['function botOf(address player, address bot) view returns (bool)']);
-const erc20 = parseAbi(['function allowance(address,address) view returns (uint256)', 'function balanceOf(address) view returns (uint256)']);
-if (registry) say(`registry bot approval: ${await pub.readContract({ address: registry, abi: botOfAbi, functionName: 'botOf', args: [main, bot] }).catch((e) => `unreadable (${String(e).slice(0, 80)})`)}`);
-if (escrow) {
-  say(`escrow bot approval:   ${await pub.readContract({ address: escrow, abi: botOfAbi, functionName: 'botOf', args: [main, bot] }).catch((e) => `unreadable (${String(e).slice(0, 80)})`)}`);
-  say(`main wallet USDso allowance for the escrow: ${formatUnits((await pub.readContract({ address: USDSO, abi: erc20, functionName: 'allowance', args: [main, escrow] })) as bigint, 18)}`);
-}
-say(`main wallet USDso in the wallet: ${formatUnits((await pub.readContract({ address: USDSO, abi: erc20, functionName: 'balanceOf', args: [main] })) as bigint, 18)}`);
+const erc20 = parseAbi(['function balanceOf(address) view returns (uint256)']);
 say(`bot gas (STT): ${formatEther(await pub.getBalance({ address: bot }))}`);
+say(`bot USDso (pays stakes): ${formatUnits((await pub.readContract({ address: USDSO, abi: erc20, functionName: 'balanceOf', args: [bot] })) as bigint, 18)}`);
+say(`main wallet USDso in the wallet: ${formatUnits((await pub.readContract({ address: USDSO, abi: erc20, functionName: 'balanceOf', args: [main] })) as bigint, 18)}`);
+if (registry) say(`seat registry: ${registry}`);
+if (escrow) say(`escrow: ${escrow}`);
 
 const sdk = new SomniaMarkets({ chain: hidekiTestnet, indexerUrl: process.env.INDEXER_URL ?? 'https://hideki-dev.smk.somnia.host/v1/graphql', addresses: SOMNIA_HIDEKI_TESTNET_ADDRESSES, privateKey: generatePrivateKey() });
 const rows = (await sdk.client.listPerpMarkets()) as unknown as { baseSymbol: string; poolAddress: `0x${string}`; tickSize: string; minQuantity: string; markPrice: string }[];
 const m = rows.find((r) => r.baseSymbol === ticker);
 if (!m) throw new Error(`${ticker} is not a perp market.`);
+{
+  const reg = (await pub.readContract({ address: m.poolAddress, abi: parseAbi(['function getOperatorPermissionsRegistry() view returns (address)']), functionName: 'getOperatorPermissionsRegistry' })) as `0x${string}`;
+  const permAbi = parseAbi(['function isApprovedForPool(address pool, address owner, address operator, bytes4 selector) view returns (bool)', 'function isGloballyApproved(address owner, address operator, bytes4 selector) view returns (bool)']);
+  const byPool = await pub.readContract({ address: reg, abi: permAbi, functionName: 'isApprovedForPool', args: [m.poolAddress, main, bot, '0x80054449'] });
+  const global = await pub.readContract({ address: reg, abi: permAbi, functionName: 'isGloballyApproved', args: [main, bot, '0x80054449'] });
+  say(`dreamDEX bot permission on ${ticker}-PERP (add the bot in the dreamDEX app): pool ${byPool}, global ${global}`);
+}
 const tick = BigInt(m.tickSize);
 const slipped = (BigInt(m.markPrice) * 10_050n) / 10_000n;
 const price = tick > 0n ? (slipped / tick) * tick : slipped;

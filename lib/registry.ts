@@ -12,9 +12,9 @@ export const registryEnabled = REGISTRY_ADDRESS !== '';
 const ABI = parseAbi([
   'function enter(string market, uint256 matchNumber, uint8 side)',
   'function latestMatch(string market) view returns (uint256)',
-  'function enterFor(address player, string market, uint256 matchNumber, uint8 side)',
-  'function confirmFor(address player, string market, uint256 matchNumber)',
-  'function leaveFor(address player, string market, uint256 matchNumber)',
+  'function enterFor(address player, address pool, string market, uint256 matchNumber, uint8 side)',
+  'function confirmFor(address player, address pool, string market, uint256 matchNumber)',
+  'function leaveFor(address player, address pool, string market, uint256 matchNumber)',
   'function setBot(address bot, bool allowed)',
   'function botOf(address player, address bot) view returns (bool)',
   'function roster(string market, uint256 matchNumber) view returns (address[] players, uint8[] sides, bool[] confirmed, uint64 firstAt, uint64 fullAt)',
@@ -39,12 +39,12 @@ export async function enterRegistry(key: Hex, ticker: string, matchNumber: numbe
   try {
     const forOther = player && player.toLowerCase() !== wallet.account.address.toLowerCase();
     hash = forOther
-      ? await wallet.writeContract({ address: REGISTRY_ADDRESS as Hex, abi: ABI, functionName: 'enterFor', args: [player, ticker, BigInt(matchNumber), side === 'bulls' ? 1 : 2] })
+      ? await wallet.writeContract({ address: REGISTRY_ADDRESS as Hex, abi: ABI, functionName: 'enterFor', args: [player, await (await import('./pools')).poolOf(ticker), ticker, BigInt(matchNumber), side === 'bulls' ? 1 : 2] })
       : await wallet.writeContract({ address: REGISTRY_ADDRESS as Hex, abi: ABI, functionName: 'enter', args: [ticker, BigInt(matchNumber), side === 'bulls' ? 1 : 2] });
   } catch (e) {
     const err = e as { shortMessage?: string; message?: string };
     const text = err.shortMessage ?? err.message ?? String(e);
-    if (/not allowed/i.test(text)) throw new Error('Your main wallet has not approved this game wallet as its bot yet. Run the grant step first.');
+    if (/not allowed/i.test(text)) throw new Error('This game wallet is not added as a bot for your main wallet yet. Add it in the dreamDEX app ("Add bot", Perps ticked) and try again.');
     if (/lobby is closed/i.test(text)) throw new Error('This lobby has closed. Open or join a newer match.');
     if (/other side/i.test(text)) throw new Error('This match needs both teams. Take the other side, or join a different match.');
     if (/full/i.test(text)) throw new Error('This match is already full. Open a new match.');
@@ -90,7 +90,7 @@ async function simpleCall(key: Hex, fn: 'confirm' | 'leave', ticker: string, mat
   try {
     const forOther = player && player.toLowerCase() !== wallet.account.address.toLowerCase();
     const hash = forOther
-      ? await wallet.writeContract({ address: REGISTRY_ADDRESS as Hex, abi: ABI, functionName: fn === 'confirm' ? 'confirmFor' : 'leaveFor', args: [player, ticker, BigInt(matchNumber)] })
+      ? await wallet.writeContract({ address: REGISTRY_ADDRESS as Hex, abi: ABI, functionName: fn === 'confirm' ? 'confirmFor' : 'leaveFor', args: [player, await (await import('./pools')).poolOf(ticker), ticker, BigInt(matchNumber)] })
       : await wallet.writeContract({ address: REGISTRY_ADDRESS as Hex, abi: ABI, functionName: fn, args: [ticker, BigInt(matchNumber)] });
     const rc = await pub().waitForTransactionReceipt({ hash });
     if (rc.status !== 'success') throw new Error(`${fn} reverted on chain (${hash}).`);
