@@ -5,7 +5,7 @@ import React, { useEffect, useRef } from 'react';
 import * as THREE from 'three';
 import { GameMatch, MarketQueueData, PositionSide } from '@/lib/types';
 import { matchPull } from '@/lib/matches';
-import { MATCH_SIZE } from '@/lib/gameTag';
+import { MATCH_SIZE, NOMINAL_STAKE_USD } from '@/lib/gameTag';
 import { aimArm, animateWalk, Character, disposeObject, Form, makeCharacter, pullPose } from '@/lib/world/characters';
 import { clock, makePanel, money, Panel } from '@/lib/world/panel';
 
@@ -28,6 +28,16 @@ interface Props {
   onBackToLobby: () => void;
   onResume: () => void;
   onFail: (message: string) => void;
+  // The match wall (east) and entry ticket (west) of the market room
+  matches?: GameMatch[];
+  selectedMatch?: GameMatch | null;
+  ticketOpen?: boolean;
+  ticketBusy?: boolean;
+  leverage?: number;
+  onPickMatch?: (m: GameMatch) => void;
+  onOpenNew?: () => void;
+  onConfirmSeat?: () => void;
+  onCloseTicket?: () => void;
 }
 
 interface Trigger {
@@ -412,6 +422,134 @@ export const World3D: React.FC<Props> = (props) => {
       };
       pad(-3.6, 'bulls', 0x10b981, '#34d399', 'BULLS', 'Long: price goes up');
       pad(3.6, 'bears', 0xf43f5e, '#fb7185', 'BEARS', 'Short: price goes down');
+
+
+      // ---- Match wall (east wall): one board and one pad per joinable match, plus "open a new match".
+      const wallX = w / 2 - 0.3;
+      const padX = w / 2 - 2.6;
+      const slotZ = (i: number) => -5 + i * 2;
+      const joinable = () =>
+        [...(live.current.matches ?? [])]
+          .filter((m) => m.status === 'filling' || !!m.playersList?.some((p) => p.isUser))
+          .sort((a, b) => Number(b.id.split('#')[1]) - Number(a.id.split('#')[1]))
+          .slice(0, 5);
+      const faceRoom = (mesh: THREE.Mesh, rotY: number) => { mesh.rotation.y = rotY; };
+      const head = sign(5.2, 0.8, 1024, (c, cw, ch) => {
+        const L = live.current;
+        c.fillStyle = 'rgba(8,15,30,0.92)'; c.fillRect(0, 0, cw, ch);
+        c.textAlign = 'center'; c.textBaseline = 'middle';
+        c.fillStyle = '#f8fafc'; c.font = 'bold 56px system-ui, sans-serif';
+        c.fillText(`${ticker} ACTIVE MATCHES`, cw / 2, ch * 0.36);
+        c.font = '34px system-ui, sans-serif';
+        c.fillStyle = L.side ? (L.side === 'bulls' ? '#34d399' : '#fb7185') : '#fbbf24';
+        c.fillText(L.side ? `Your pick: ${L.side === 'bulls' ? 'BULLS (LONG)' : 'BEARS (SHORT)'}. Step on a pad to join.` : 'First pick Bulls or Bears on the pads below.', cw / 2, ch * 0.76);
+      }, wallX, 3.7, -1);
+      faceRoom(head.mesh, -Math.PI / 2);
+      const rows: Panel[] = [];
+      for (let i = 0; i < 6; i++) {
+        const z = slotZ(i);
+        const row = sign(3.6, 1.1, 1024, (c, cw, ch) => {
+          c.fillStyle = 'rgba(8,15,30,0.92)'; c.fillRect(0, 0, cw, ch);
+          c.textAlign = 'left'; c.textBaseline = 'middle';
+          if (i === 5) {
+            c.fillStyle = '#fbbf24'; c.font = 'bold 56px system-ui, sans-serif'; c.fillText('+ OPEN A NEW MATCH', 32, ch * 0.38);
+            c.fillStyle = '#cbd5e1'; c.font = '34px system-ui, sans-serif'; c.fillText('Stand on the pad. You take the first seat.', 32, ch * 0.76);
+            return;
+          }
+          const m = joinable()[i];
+          if (!m) { c.fillStyle = '#64748b'; c.font = '44px system-ui, sans-serif'; c.fillText(i === 0 ? `No ${ticker} match is open right now` : 'Empty slot', 32, ch / 2); return; }
+          const mine = !!m.playersList?.some((p) => p.isUser);
+          const left = m.lobbyEndsAt ? Math.max(0, m.lobbyEndsAt - nowSec()) : 0;
+          c.fillStyle = '#f8fafc'; c.font = 'bold 56px system-ui, sans-serif'; c.fillText(m.id, 32, ch * 0.32);
+          c.fillStyle = '#34d399'; c.font = 'bold 40px system-ui, sans-serif';
+          c.fillText(`${m.total}/${MATCH_SIZE} seated · ${m.bulls} bulls · ${m.bears} bears`, 32, ch * 0.62);
+          c.fillStyle = '#94a3b8'; c.font = '32px system-ui, sans-serif';
+          c.fillText(mine ? 'You are seated: step here to return' : `Lobby ${clock(left)} left · $${NOMINAL_STAKE_USD} stake`, 32, ch * 0.86);
+        }, wallX, 1.7, z);
+        faceRoom(row.mesh, -Math.PI / 2);
+        rows.push(row);
+        const color = i === 5 ? 0xf59e0b : 0x10b981;
+        const base = new THREE.Mesh(new THREE.CylinderGeometry(0.8, 0.8, 0.1, 32), new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 0.35, roughness: 0.4 }));
+        base.position.set(padX, 0.06, z); add(base);
+        const fill = new THREE.Mesh(new THREE.CircleGeometry(0.72, 32), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.45 }));
+        fill.rotation.x = -Math.PI / 2; fill.position.set(padX, 0.13, z); fill.scale.setScalar(0.001); add(fill);
+        triggers.push({
+          id: `match-pad-${i}`,
+          test: (x, zz) => Math.hypot(x - padX, zz - z) < 0.75,
+          dwell: 0.8,
+          fire: () => {
+            const L = live.current;
+            if (!L.side) return;
+            if (i === 5) L.onOpenNew?.();
+            else { const m = joinable()[i]; if (m) L.onPickMatch?.(m); }
+          },
+          progress: (f) => fill.scale.setScalar(Math.max(0.001, f)),
+          fades: false,
+        });
+      }
+
+      // ---- Entry ticket (west wall): fills in once you pick a match; two pads confirm or go back.
+      const tX = -w / 2 + 0.3;
+      const ticket = sign(5.6, 3.6, 1280, (c, cw, ch) => {
+        const L = live.current;
+        const m = L.ticketOpen ? L.selectedMatch : null;
+        c.fillStyle = 'rgba(8,15,30,0.94)'; c.fillRect(0, 0, cw, ch);
+        c.textAlign = 'left'; c.textBaseline = 'middle';
+        c.fillStyle = '#34d399'; c.font = 'bold 40px system-ui, sans-serif'; c.fillText('TUG OF WAR ENTRY TICKET', 48, ch * 0.09);
+        if (!m || !L.side) {
+          c.fillStyle = '#94a3b8'; c.font = '48px system-ui, sans-serif';
+          c.fillText('Pick a match on the right wall', 48, ch * 0.45);
+          c.font = '36px system-ui, sans-serif'; c.fillText('Your ticket appears here before you sit.', 48, ch * 0.58);
+          return;
+        }
+        const lev = L.leverage ?? 1;
+        const line = (y: number, k: string, v: string, vc = '#f8fafc') => {
+          c.fillStyle = '#94a3b8'; c.font = '36px system-ui, sans-serif'; c.fillText(k, 48, ch * y);
+          c.fillStyle = vc; c.font = 'bold 40px system-ui, sans-serif'; c.textAlign = 'right'; c.fillText(v, cw - 48, ch * y); c.textAlign = 'left';
+        };
+        c.fillStyle = '#f8fafc'; c.font = 'bold 84px system-ui, sans-serif'; c.fillText(m.id, 48, ch * 0.2);
+        line(0.33, 'Your team', L.side === 'bulls' ? 'BULLS (LONG)' : 'BEARS (SHORT)', L.side === 'bulls' ? '#34d399' : '#fb7185');
+        line(0.43, 'Market', `${ticker} / USD, isolated`);
+        line(0.53, 'Stake', `$${NOMINAL_STAKE_USD}.00`);
+        line(0.63, 'Seats taken', `${m.total} / ${MATCH_SIZE}  (${m.bulls} bulls, ${m.bears} bears)`);
+        line(0.73, 'Leverage', `${lev}x: $${NOMINAL_STAKE_USD} x ${lev} = $${NOMINAL_STAKE_USD * lev} exposure`);
+        c.fillStyle = '#cbd5e1'; c.font = '30px system-ui, sans-serif';
+        c.fillText('Confirming takes your seat. Leave before the lock and nothing is lost.', 48, ch * 0.85);
+        c.fillText('Keep this tab open: your trade is placed automatically at the lock.', 48, ch * 0.92);
+      }, tX, 2.7, 0);
+      faceRoom(ticket.mesh, Math.PI / 2);
+      const ticketPad = (z: number, color: number, css: string, text: string, act: () => void) => {
+        const px = -w / 2 + 2.8;
+        const base = new THREE.Mesh(new THREE.CylinderGeometry(0.9, 0.9, 0.1, 32), new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 0.35, roughness: 0.4 }));
+        base.position.set(px, 0.06, z); add(base);
+        const fill = new THREE.Mesh(new THREE.CircleGeometry(0.82, 32), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.45 }));
+        fill.rotation.x = -Math.PI / 2; fill.position.set(px, 0.13, z); fill.scale.setScalar(0.001); add(fill);
+        const lab = sign(2.2, 0.55, 512, (c, cw, ch) => {
+          c.fillStyle = 'rgba(8,15,30,0.9)'; c.fillRect(0, 0, cw, ch);
+          c.fillStyle = css; c.font = 'bold 44px system-ui, sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText(text, cw / 2, ch / 2);
+        }, px, 1.6, z, true);
+        frames.push(() => lab.mesh.lookAt(camera.position));
+        triggers.push({
+          id: `ticket-${text}`,
+          test: (x, zz) => Math.hypot(x - px, zz - z) < 0.85,
+          dwell: 0.8,
+          fire: () => { const L = live.current; if (L.ticketOpen && !L.ticketBusy) act(); },
+          progress: (f) => fill.scale.setScalar(Math.max(0.001, f)),
+          fades: false,
+        });
+      };
+      ticketPad(-1.8, 0x10b981, '#34d399', 'TAKE MY SEAT', () => live.current.onConfirmSeat?.());
+      ticketPad(1.8, 0x64748b, '#cbd5e1', 'BACK', () => live.current.onCloseTicket?.());
+
+      // Redraw the wall and the ticket when anything they show changes (and once a second for the lobby clocks).
+      let wallSig = '';
+      ticks.push(() => {
+        const L = live.current;
+        const sig = JSON.stringify([L.side, L.ticketOpen, L.leverage, L.selectedMatch?.id, L.selectedMatch?.total, Math.floor(nowSec()), joinable().map((m) => [m.id, m.total, m.bulls, m.bears, m.status])]);
+        if (sig === wallSig) return;
+        wallSig = sig;
+        head.redraw(); rows.forEach((r) => r.redraw()); ticket.redraw();
+      });
 
       exitPortal(-w / 2 + 2, d / 2 - 2, 'Back to the hall', () => live.current.onBackToLobby());
       pos.set(0, d / 2 - 3);

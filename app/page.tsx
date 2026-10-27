@@ -1,7 +1,7 @@
 'use client';
 
 import { LobbySkeleton } from '@/components/Skeleton';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import dynamic from 'next/dynamic';
 import { addPending, getPending, removePending } from '@/lib/pending';
 import type { WorldRoom } from '@/components/World3D';
@@ -23,7 +23,7 @@ import type { EntryReceipt } from '@/lib/trading';
 import { WalletPanel } from '@/components/WalletPanel';
 import { useAutoTrade } from '@/lib/useAutoTrade';
 import { CORE_RULES } from '@/lib/payout';
-import { MATCH_SIZE, LEVERAGE as LEVERAGE_DEFAULT } from '@/lib/gameTag';
+import { MATCH_SIZE, LEVERAGE as LEVERAGE_DEFAULT, leverageChoices } from '@/lib/gameTag';
 import { soundFx } from '@/lib/sound';
 import { Navbar } from '@/components/Navbar';
 import { FlowBreadcrumbs } from '@/components/FlowBreadcrumbs';
@@ -104,7 +104,11 @@ export default function TugOfWarApp() {
   }, [currentMatches, wallet.address, arenaId]);
 
   const worldActive = view === 'world' && live.status === 'ok';
-  const panelOpen = view === 'world' && !arenaId && ['matches', 'inspect', 'entry'].includes(screen);
+  // In the 3D room the match list is a wall and the entry ticket is a board, so only the inspect page is still a panel.
+  const panelOpen = view === 'world' && !arenaId && screen === 'inspect';
+  const ticketOpen = view === 'world' && !arenaId && screen === 'entry' && !!selectedMatch;
+  const confirmRef = useRef<(() => void) | null>(null);
+  const [lev3d, setLev3d] = useState<number>(LEVERAGE_DEFAULT);
   const mySeats = wallet.address ? getPending().filter((p) => p.address.toLowerCase() === (wallet.address as string).toLowerCase()) : [];
   const resumeSeat = mySeats.length ? mySeats[mySeats.length - 1] : null;
 
@@ -254,6 +258,14 @@ export default function TugOfWarApp() {
             match={arenaMatch}
             resume={resumeSeat ? { ticker: resumeSeat.ticker, number: resumeSeat.number } : null}
             frozen={panelOpen}
+            matches={currentMatches}
+            selectedMatch={selectedMatch}
+            ticketOpen={ticketOpen}
+            leverage={Math.min(lev3d, leverageChoices(currentMarket?.maxLeverage).slice(-1)[0])}
+            onPickMatch={handleSelectMatch}
+            onOpenNew={handleOpenNewMatch}
+            onConfirmSeat={() => confirmRef.current?.()}
+            onCloseTicket={() => setScreen('matches')}
             onEnterMarket={handleSelectMarket}
             onPickSide={handleSelectSide}
             onBackToLobby={handleReturnToLobby}
@@ -270,10 +282,36 @@ export default function TugOfWarApp() {
             }}
           />
 
+          {/* The entry logic stays the same; the 3D ticket board presses its confirm button. */}
+          {ticketOpen && selectedAsset && selectedSide && selectedMatch && (
+            <div className="absolute h-0 w-0 overflow-hidden" aria-hidden>
+              <EntryConfirmScreen
+                market={selectedAsset}
+                selectedSide={selectedSide}
+                match={selectedMatch}
+                wallet={wallet}
+                pool={currentMarket?.pool ?? ''}
+                maxLeverage={currentMarket?.maxLeverage}
+                onEntered={handleEntered}
+                onBackToInspect={() => setScreen('matches')}
+                registerConfirm={(fn) => { confirmRef.current = fn; }}
+                leverageOverride={Math.min(lev3d, leverageChoices(currentMarket?.maxLeverage).slice(-1)[0])}
+              />
+            </div>
+          )}
+          {ticketOpen && (
+            <div data-world-ui className="absolute right-3 top-3 z-10 flex flex-wrap items-center gap-1 rounded-xl border border-zinc-800 bg-zinc-950/85 px-3 py-2 text-xs text-zinc-300">
+              <span className="mr-1">Leverage</span>
+              {leverageChoices(currentMarket?.maxLeverage).map((x) => (
+                <button key={x} onClick={() => setLev3d(x)} className={`rounded-md border px-2 py-1 font-mono font-bold ${Math.min(lev3d, leverageChoices(currentMarket?.maxLeverage).slice(-1)[0]) === x ? 'border-emerald-500 bg-emerald-500/15 text-emerald-300' : 'border-zinc-700 text-zinc-300'}`}>{x}x</button>
+              ))}
+            </div>
+          )}
+
           {/* Room captions */}
           {!arenaId && room.kind === 'market' && !panelOpen && (
             <div className="pointer-events-none absolute left-3 top-3 rounded-xl border border-zinc-800 bg-zinc-950/80 px-3 py-2 text-xs text-zinc-300">
-              {room.ticker} room. Read the chart on the wall, then step on the Bulls or Bears pad.
+              {room.ticker} room. Pick Bulls or Bears on a pad, then walk to the match wall on the right. Your ticket is on the left wall.
             </div>
           )}
           {room.kind === 'hub' && (

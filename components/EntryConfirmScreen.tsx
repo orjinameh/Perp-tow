@@ -31,6 +31,10 @@ interface EntryConfirmScreenProps {
   maxLeverage?: number;
   onEntered: (receipt: EntryReceipt) => void;
   onBackToInspect: () => void;
+  /** The 3D room confirms through this: it receives the confirm action (null on unmount). */
+  registerConfirm?: (fn: (() => void) | null) => void;
+  /** The 3D room's leverage choice, when it owns that choice. */
+  leverageOverride?: number;
 }
 
 export const EntryConfirmScreen: React.FC<EntryConfirmScreenProps> = ({
@@ -42,6 +46,8 @@ export const EntryConfirmScreen: React.FC<EntryConfirmScreenProps> = ({
   maxLeverage,
   onEntered,
   onBackToInspect,
+  registerConfirm,
+  leverageOverride,
 }) => {
   const isFull = match.total === MATCH_SIZE;
   const [busy, setBusy] = React.useState(false);
@@ -54,6 +60,12 @@ export const EntryConfirmScreen: React.FC<EntryConfirmScreenProps> = ({
   const lobbyClosed = match.status !== 'filling';
   const sideBlocked = match.total === MATCH_SIZE - 1 && (selectedSide === 'bulls' ? match.bears === 0 : match.bulls === 0);
 
+  const placeEntryRef = React.useRef<() => Promise<void>>(async () => {});
+  React.useEffect(() => {
+    registerConfirm?.(() => void placeEntryRef.current());
+    return () => registerConfirm?.(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const placeEntry = async () => {
     if (!wallet.key || !wallet.address) return;
     setBusy(true);
@@ -84,7 +96,7 @@ export const EntryConfirmScreen: React.FC<EntryConfirmScreenProps> = ({
       }
       advance(1);
       // The real trade is placed automatically when the match locks, by this browser tab.
-      addPending({ ticker: market, pool, number, side: selectedSide, address: wallet.address as string, placed: false, leverage });
+      addPending({ ticker: market, pool, number, side: selectedSide, address: wallet.address as string, placed: false, leverage: leverageOverride ?? leverage });
       return seatTx;
     });
     setBusy(false);
@@ -96,6 +108,8 @@ export const EntryConfirmScreen: React.FC<EntryConfirmScreenProps> = ({
     soundFx.playEntrySuccess();
     onEntered(receipt);
   };
+
+  placeEntryRef.current = placeEntry;
 
   // Potential payout if user's chosen side wins
   const winnerCount = selectedSide === 'bulls' ? match.bulls : match.bears;
