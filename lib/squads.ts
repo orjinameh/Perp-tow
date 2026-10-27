@@ -21,7 +21,9 @@ const ABI = parseAbi([
   'function finish(string market, uint256 number)',
   'function claim(bytes32 key, address player)',
   'function claimFor(address player, address pool, bytes32 key)',
-  'function settle(bytes32 key, uint8 result)',
+  'function settle(bytes32 key)',
+  'function teamScores(bytes32 key) view returns (int256 red, int256 blue)',
+  'function scoreOf(bytes32 key, address player) view returns (int256)',
   'function latestMatch(string market) view returns (uint256)',
   'function roster(string market, uint256 number) view returns (address[] players, bool[] confirmed, uint8[] teams, uint64 firstAt, uint64 lockAt, bool cancelled, uint8 result)',
   'function matches(bytes32) view returns (uint64 firstAt, uint64 lockAt, bytes32 seed, uint8 result, bool cancelled, uint256 rakeOwed)',
@@ -144,7 +146,7 @@ function friendly(e: unknown): Error {
   if (/not in this match/i.test(text)) return new Error('This wallet has no seat in this match.');
   if (/transfer|allowance|exceeds balance/i.test(text)) return new Error('Not enough USDso to stake $10 (or the approval did not go through). Check the wallet that pays the stake.');
   if (/lost/.test(text)) return new Error('Your team lost this match, so there is nothing to claim.');
-  if (/not settled/i.test(text)) return new Error('The result has not been posted yet.');
+  if (/not settled/i.test(text)) return new Error('The result has not been settled yet. Press Settle once the match is over.');
   return new Error(text.slice(0, 280));
 }
 
@@ -201,8 +203,14 @@ export async function claimSquad(key: Hex, ticker: string, number: number, playe
   return send(key, 'claim', [k, player]);
 }
 
-/** The operator posts the winning team (1 Red, 2 Blue, 3 tie). */
-export const settleSquad = (key: Hex, ticker: string, number: number, result: 1 | 2 | 3) => send(key, 'settle', [squadKey(ticker, number), result]);
+/** Anyone can settle a finished match: the contract reads each player's dreamDEX equity and computes the winner itself. */
+export const settleSquad = (key: Hex, ticker: string, number: number) => send(key, 'settle', [squadKey(ticker, number)]);
+
+/** The contract's own live team scores (average equity change in USDso, capped per player): exactly what settle will use. */
+export async function squadScores(ticker: string, number: number): Promise<{ red: number; blue: number }> {
+  const [red, blue] = await read<readonly [bigint, bigint]>('teamScores', [squadKey(ticker, number)]);
+  return { red: Number(red) / 1e36, blue: Number(blue) / 1e36 };
+}
 
 /** Whether a player has already been paid for a match. */
 export async function squadClaimed(ticker: string, number: number, player: Hex): Promise<boolean> {

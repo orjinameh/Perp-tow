@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import dynamic from 'next/dynamic';
 import { useGameWallet } from '@/lib/useGameWallet';
@@ -9,9 +9,8 @@ import { useProgress } from '@/lib/useProgress';
 import { WalletPanel } from '@/components/WalletPanel';
 import {
   SquadMatch, SquadParams, TEAM_NAME, claimSquad, confirmSquad, enterSquad, finishSquad, leaveSquad,
-  loadSquadMatches, nextSquadNumber, readSquadParams, squadClaimed, squadsEnabled,
+  loadSquadMatches, nextSquadNumber, readSquadParams, settleSquad, squadClaimed, squadScores, squadsEnabled,
 } from '@/lib/squads';
-import { PlayerScore, loadScores, teamScore, winner } from '@/lib/score';
 import { enterMatch, closeMyPosition, myDirection } from '@/lib/trading';
 import { nowSec } from '@/lib/clock';
 import { leverageChoices } from '@/lib/gameTag';
@@ -21,7 +20,6 @@ const Hall = dynamic(() => import('@/components/SquadsHall3D').then((m) => m.Squ
 type Hex = `0x${string}`;
 const short = (a: string) => `${a.slice(0, 6)}…${a.slice(-4)}`;
 const mmss = (s: number) => `${Math.floor(Math.max(0, s) / 60)}:${String(Math.max(0, Math.floor(s) % 60)).padStart(2, '0')}`;
-const pct = (x: number) => `${x >= 0 ? '+' : ''}${(x * 100).toFixed(2)}%`;
 
 export default function SquadsPage() {
   const wallet = useGameWallet();
@@ -31,7 +29,7 @@ export default function SquadsPage() {
   const [params, setParams] = useState<SquadParams | null>(null);
   const [matches, setMatches] = useState<SquadMatch[]>([]);
   const [selected, setSelected] = useState<number | null>(null);
-  const [scores, setScores] = useState<PlayerScore[]>([]);
+  const [chain, setChain] = useState<{ red: number; blue: number } | null>(null);
   const [claimed, setClaimed] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [now, setNow] = useState(0);
@@ -58,27 +56,21 @@ export default function SquadsPage() {
   }, [ticker]);
   useEffect(() => { void reload(); const t = setInterval(reload, 8000); return () => clearInterval(t); }, [reload]);
 
-  // Live scores from real fills, for the selected match once it has locked.
+  // Live team scores straight from the contract: the same numbers settle() will use.
   useEffect(() => {
-    if (!match || !match.lockAt || !market) { setScores([]); return; }
+    if (!match || !match.lockAt) { setChain(null); return; }
     let stop = false;
-    const go = async () => {
-      try {
-        const s = await loadScores(market.pool, match.players.map((p) => p.address), match.lockAt, match.endsAt, market.baseDecimals);
-        if (!stop) setScores(s);
-      } catch { /* keep the last scores */ }
-    };
+    const go = () => squadScores(ticker, match.number).then((v) => { if (!stop) setChain(v); }).catch(() => {});
     void go();
     const t = setInterval(go, 6000);
     return () => { stop = true; clearInterval(t); };
-  }, [match?.number, match?.lockAt, match?.endsAt, market?.pool, match?.players.length]);
+  }, [match?.number, match?.lockAt, ticker]);
 
   useEffect(() => {
     setClaimed(false);
     if (match && me && match.phase !== 'filling') squadClaimed(ticker, match.number, me).then(setClaimed).catch(() => {});
   }, [match?.number, match?.phase, me, ticker]);
 
-  const ts = useMemo(() => (match ? teamScore(match.players, scores) : null), [match, scores]);
   const key = wallet.key as Hex | null;
 
   const act = async (title: string, labels: string[], fn: () => Promise<unknown>) => {
@@ -95,6 +87,7 @@ export default function SquadsPage() {
   const leave = (m: SquadMatch) => key && act('Leaving', ['Leave and refund'], () => leaveSquad(key, ticker, m.number, me as Hex));
   const confirm = (m: SquadMatch) => key && act('Confirming', ['Confirm'], () => confirmSquad(key, ticker, m.number, me as Hex));
   const finish = (m: SquadMatch) => key && act('Locking the match', ['Lock'], () => finishSquad(key, ticker, m.number));
+  const settle = (m: SquadMatch) => key && act('Settling', ['Computing the result on chain'], () => settleSquad(key, ticker, m.number));
   const claim = (m: SquadMatch) => key && act('Claiming', ['Pay out'], () => claimSquad(key, ticker, m.number, me as Hex));
   const trade = () => key && match && act('Opening your trade', ['Sending order'], () => enterMatch({ key, address: me as Hex, ticker, side, matchNumber: match.number, stakeUsd: margin, leverage: lev }));
   const close = () => key && act('Closing your trade', ['Closing'], () => closeMyPosition(key, me as Hex, ticker));
@@ -104,8 +97,10 @@ export default function SquadsPage() {
   }
 
   const left = match ? (match.phase === 'filling' ? match.lobbyEndsAt - now : match.phase === 'confirming' ? match.confirmEndsAt - now : match.phase === 'trading' ? match.endsAt - now : 0) : 0;
-  const w = ts ? winner(ts) : 3;
-  const lead = ts ? Math.max(-1, Math.min(1, ts.gap * 20)) : 0; // ±5% gap fills the rope
+  const gap = chain ? chain.red - chain.blue : 0;
+  const w = !chain || gap === 0 ? 3 : gap > 0 ? 1 : 2;
+  const cap = (params?.stakeUsd ?? 10) * 10;
+  const lead = Math.max(-1, Math.min(1, gap / cap)); // a full cap of difference fills the rope
 
   return (
     <Shell>
@@ -165,23 +160,22 @@ export default function SquadsPage() {
           {(match.phase === 'filling' || match.phase === 'confirming') && (
             <p className="text-sm opacity-80 my-2">Teams are drawn at random when the match locks. Nobody picks a side, and you can trade any direction once it starts.</p>
           )}
-          {match.lockAt > 0 && <p className="text-sm my-2">Teams drawn. Both teams trade freely until the clock ends; the team with the better average return wins.</p>}
+          {match.lockAt > 0 && <p className="text-sm my-2">Teams drawn. Both teams trade freely until the clock ends; the team with the better average equity gain wins.</p>}
 
           <ul className="grid sm:grid-cols-2 gap-1 text-sm my-3">
             {match.players.map((p) => {
-              const s = scores.find((x) => x.address.toLowerCase() === p.address.toLowerCase());
               return (
                 <li key={p.address} className="flex justify-between border rounded px-2 py-1">
                   <span>{short(p.address)}{me && p.address.toLowerCase() === me.toLowerCase() ? ' (you)' : ''}{p.confirmed ? ' ✓' : ''}</span>
-                  <span>{p.team ? TEAM_NAME[p.team] : '—'}{s && s.trades ? ` · ${pct(s.ret)}` : ''}</span>
+                  <span>{p.team ? TEAM_NAME[p.team] : '—'}</span>
                 </li>
               );
             })}
           </ul>
 
-          {ts && match.lockAt > 0 && (
+          {chain && match.lockAt > 0 && (
             <div className="my-3">
-              <div className="flex justify-between text-sm"><span>Red {pct(ts.red)}</span><span>Blue {pct(ts.blue)}</span></div>
+              <div className="flex justify-between text-sm"><span>Red {chain.red >= 0 ? '+' : ''}{chain.red.toFixed(2)} USDso</span><span>Blue {chain.blue >= 0 ? '+' : ''}{chain.blue.toFixed(2)} USDso</span></div>
               <div className="h-3 rounded bg-blue-500/60 relative overflow-hidden">
                 <div className="absolute inset-y-0 left-0 bg-red-500/80 transition-all" style={{ width: `${50 + lead * 50}%` }} />
               </div>
@@ -197,6 +191,7 @@ export default function SquadsPage() {
             {mine && ['cancelled', 'settled'].includes(match.phase) && !claimed && (match.phase === 'cancelled' || match.result === 3 || (match.result === mine.team)) && (
               <button className="border rounded px-3 py-1" onClick={() => claim(match)}>{match.phase === 'cancelled' || match.result === 3 ? 'Claim refund' : 'Claim payout'}</button>
             )}
+            {match.phase === 'ended' && <button className="border rounded px-3 py-1" onClick={() => settle(match)}>Settle the result</button>}
             {claimed && <span className="text-sm">Paid out.</span>}
           </div>
 
@@ -213,11 +208,11 @@ export default function SquadsPage() {
                 <button className="border rounded px-3 py-1" onClick={trade}>Place trade</button>
                 <button className="border rounded px-3 py-1" onClick={close}>Close position</button>
               </div>
-              <p className="text-xs opacity-70 mt-2">Trade as often as you like in either direction. Your score is your realized return on the money you put to work, so leverage alone cannot win it.</p>
+              <p className="text-xs opacity-70 mt-2">Trade as often as you like in either direction. Your score is how much your real dreamDEX account equity changed since the lock (capped), open positions included.</p>
             </div>
           )}
 
-          {match.phase === 'ended' && <p className="text-sm mt-3">Time is up. Leading team: {ts ? (w === 3 ? 'tie' : w === 1 ? 'Red' : 'Blue') : '…'}. The result is posted by the operator and then winners can claim.</p>}
+          {match.phase === 'ended' && <p className="text-sm mt-3">Time is up. Leading team: {chain ? (w === 3 ? 'tie' : w === 1 ? 'Red' : 'Blue') : '…'}. Anyone can press Settle: the contract computes the winner from dreamDEX equity, then winners claim.</p>}
           {match.phase === 'settled' && <p className="text-sm mt-3">Result: {match.result === 3 ? 'tie (refund)' : `${TEAM_NAME[match.result as 1 | 2]} won`}.</p>}
         </section>
       )}
@@ -229,7 +224,7 @@ function Shell({ children }: { children: React.ReactNode }) {
   return (
     <main className="max-w-5xl mx-auto p-4">
       <h1 className="text-2xl font-bold mb-1">Tug of War: Squads</h1>
-      <p className="text-sm opacity-70 mb-4">Random teams, free trading, real dreamDEX positions. The better team return wins.</p>
+      <p className="text-sm opacity-70 mb-4">Random teams, free trading, real dreamDEX positions. The team whose accounts gain more wins, verified on chain.</p>
       {children}
     </main>
   );

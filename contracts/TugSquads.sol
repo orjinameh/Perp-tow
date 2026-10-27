@@ -6,6 +6,10 @@ interface IERC20 {
     function transferFrom(address from, address to, uint256 amount) external returns (bool);
 }
 
+interface IMarginBank {
+    function tryGetAccountEquity(address account) external view returns (bool ok, int256 equity);
+}
+
 interface IOperatorPermissions {
     function isApprovedForPool(address pool, address owner, address operator, bytes4 selector) external view returns (bool);
     function isGloballyApproved(address owner, address operator, bytes4 selector) external view returns (bool);
@@ -17,10 +21,13 @@ interface IOperatorPermissions {
 ///  2. When the lobby is full, or its timer ended and enough players said "continue", the match LOCKS and the
 ///     teams are drawn at random, balanced to within one player. Nobody picks a side.
 ///  3. Players trade freely on dreamDEX for `duration` seconds from the lock. The two teams are scored on those trades.
-///  4. The operator posts the winning team (`settle`). Winners split the losers' stakes minus a rake:
+///  4. Anyone can call `settle` once the match is over. The contract reads each player's real dreamDEX account equity
+///     from the margin bank, once at the lock and once at the end, and the team with the higher average equity
+///     change wins (each player's change is capped at +/- scoreCap). Winners split the losers' stakes minus a rake:
 ///     payout = stake + (1 - r) * stake * L / W. A tie or an unsettled match refunds everyone.
 ///  5. Anyone may lock a ready lobby, and anyone may claim for a player. Refunds always open after a grace period.
-/// TRUST: the operator posts which team won, computed from public dreamDEX data. It cannot take stakes, only the rake.
+/// TRUST: nobody posts the result: it is computed on chain from dreamDEX's margin bank. The operator can only collect the rake.
+/// KNOWN LIMIT: equity also moves when a player deposits or withdraws margin during the match. The cap bounds what that can win.
 contract TugSquads {
     struct Seat {
         address player;
@@ -46,6 +53,8 @@ contract TugSquads {
     uint64 public immutable duration;        // seconds from the lock to the end of the match
     uint64 public immutable graceAfter;      // seconds after the end before an unsettled match refunds
     uint16 public immutable rakeBps;
+    IMarginBank public immutable bank;       // dreamDEX margin bank: where equity is read
+    int256 public immutable scoreCap;        // each player's equity change is clamped to +/- this many token units
     IOperatorPermissions public immutable perms; // dreamDEX's bot permission registry (0 = not used)
     bytes4 internal constant PLACE_ORDER_FOR = 0x80054449;
 
@@ -55,6 +64,7 @@ contract TugSquads {
     mapping(bytes32 => mapping(address => bool)) public claimed;
     mapping(bytes32 => uint256) private _latest; // keccak(market) => highest match number used
     mapping(address => mapping(address => bool)) public botOf;
+    mapping(bytes32 => mapping(address => int256)) public startEquity; // each player's margin-bank equity at the lock
 
     event Entered(bytes32 indexed marketHash, uint256 indexed number, address indexed player, uint32 seat);
     event Confirmed(bytes32 indexed marketHash, uint256 indexed number, address indexed player);
@@ -76,6 +86,8 @@ contract TugSquads {
         uint64 graceAfter;
         uint16 rakeBps;
         address perms;
+        address bank;
+        uint256 scoreCap;
     }
 
     constructor(Params memory p) {
@@ -91,6 +103,8 @@ contract TugSquads {
         graceAfter = p.graceAfter;
         rakeBps = p.rakeBps;
         perms = IOperatorPermissions(p.perms);
+        bank = IMarginBank(p.bank);
+        scoreCap = int256(p.scoreCap);
     }
 
     // ------------------------------------------------------------------ bots
@@ -228,6 +242,13 @@ contract TugSquads {
         m.lockAt = uint64(block.timestamp);
         // random draw from the previous block's hash: good enough for a testnet game
         m.seed = keccak256(abi.encode(blockhash(block.number - 1), key, players, block.timestamp));
+        // snapshot each playing account's real equity so the end can be compared with it
+        Seat[] storage s = _seats[key];
+        bool full = s.length == size;
+        for (uint256 i = 0; i < s.length; i++) {
+            if (!full && !s[i].confirmed) continue;
+            startEquity[key][s[i].player] = _equity(s[i].player);
+        }
         emit Locked(mh, number, players, m.seed);
     }
 
@@ -266,16 +287,50 @@ contract TugSquads {
 
     // ---------------------------------------------------------------- result
 
-    /// Operator posts the winning team (1 Red, 2 Blue) or 3 for a tie, once the match is over.
-    function settle(bytes32 key, uint8 result) external {
-        require(msg.sender == operator, "operator only");
+    function _equity(address a) internal view returns (int256 e) {
+        try bank.tryGetAccountEquity(a) returns (bool ok, int256 eq) {
+            return ok ? eq : int256(0);
+        } catch {
+            return 0;
+        }
+    }
+
+    /// One player's score: their account equity now minus at the lock, clamped to +/- scoreCap. Computed live.
+    function scoreOf(bytes32 key, address player) public view returns (int256) {
+        int256 d = _equity(player) - startEquity[key][player];
+        if (d > scoreCap) return scoreCap;
+        if (d < -scoreCap) return -scoreCap;
+        return d;
+    }
+
+    /// Team averages right now, times 1e18 for precision: (red, blue).
+    function teamScores(bytes32 key) public view returns (int256 red, int256 blue) {
+        (uint32 rn, uint32 bn) = teamSizes(key);
+        Seat[] storage s = _seats[key];
+        int256 rs;
+        int256 bs;
+        for (uint256 i = 0; i < s.length; i++) {
+            uint8 t = teamOf(key, s[i].player);
+            if (t == 0) continue;
+            int256 sc = scoreOf(key, s[i].player);
+            if (t == 1) rs += sc; else bs += sc;
+        }
+        if (rn > 0) red = (rs * 1e18) / int256(uint256(rn));
+        if (bn > 0) blue = (bs * 1e18) / int256(uint256(bn));
+    }
+
+    /// ANYONE can settle once the match is over. The winner is computed from dreamDEX equity, not posted by anybody.
+    function settle(bytes32 key) external {
         Match storage m = matches[key];
         require(m.lockAt != 0 && m.result == 0 && !m.cancelled, "not settleable");
         require(block.timestamp >= m.lockAt + duration, "still running");
         require(block.timestamp < m.lockAt + duration + graceAfter, "refund window open");
-        require(result >= 1 && result <= 3, "result");
         (uint32 red, uint32 blue) = teamSizes(key);
-        if (red == 0 || blue == 0) result = 3;
+        uint8 result = 3;
+        if (red > 0 && blue > 0) {
+            (int256 rs, int256 bs) = teamScores(key);
+            if (rs > bs) result = 1; else if (bs > rs) result = 2;
+        }
         m.result = result;
         if (result == 1) m.rakeOwed = (uint256(blue) * stake * rakeBps) / 10_000;
         if (result == 2) m.rakeOwed = (uint256(red) * stake * rakeBps) / 10_000;
