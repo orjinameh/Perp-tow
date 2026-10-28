@@ -115,6 +115,10 @@ export function SquadsGame({ wallet, live }: { wallet: GameWallet; live: LiveMar
   /** True (and tells the player why) when they cannot act yet. */
   const blocked = (): boolean => {
     if (!wallet.ready) { setNotice({ title: 'One moment', body: 'Your wallet is still loading. Try again in a second.' }); return true; }
+    if (wallet.locked) {
+      setNotice({ title: 'Unlock your wallet', body: (<p>Your game wallet is locked. Enter your PIN in the wallet bar at the top of the page and press Unlock, then try again.</p>) });
+      return true;
+    }
     if (!key || !me) {
       setNotice({
         title: 'Create your game wallet first',

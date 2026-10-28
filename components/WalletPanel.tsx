@@ -20,6 +20,16 @@ export const WalletPanel: React.FC<{ wallet: GameWallet }> = ({ wallet }) => {
   const [mainOpen, setMainOpen] = useState(false);
   const [mainText, setMainText] = useState('');
   const [keyShown, setKeyShown] = useState(false);
+  const [revealed, setRevealed] = useState<string | null>(null); // the key, shown for a short time after the PIN check
+  const [revealPin, setRevealPin] = useState('');
+  const [revealErr, setRevealErr] = useState<string | null>(null);
+  const [sendPin, setSendPin] = useState('');
+  const [setup, setSetup] = useState<'create' | 'import' | null>(null);
+  const [pin1, setPin1] = useState('');
+  const [pin2, setPin2] = useState('');
+  const [pinErr, setPinErr] = useState<string | null>(null);
+  const [pinBusy, setPinBusy] = useState(false);
+  const [unlockPin, setUnlockPin] = useState('');
   const [keyCopied, setKeyCopied] = useState(false);
   const [sendOpen, setSendOpen] = useState(false);
   const [sendTok, setSendTok] = useState<'STT' | 'USDso'>('USDso');
@@ -120,10 +130,12 @@ export const WalletPanel: React.FC<{ wallet: GameWallet }> = ({ wallet }) => {
     setSendDone(null);
     setSending(true);
     try {
+      if (wallet.protectedKey && !(await wallet.verifyPin(sendPin))) throw new Error('Wrong PIN.');
       const t = await import('@/lib/transfer');
       const hash = await t.sendFunds(wallet.key, sendTok, sendTo, sendAmt);
       setSendDone(`Sent ${sendAmt} ${sendTok}. Transaction ${hash.slice(0, 10)}…${hash.slice(-6)}`);
       setSendAmt('');
+      setSendPin('');
       refreshBalance();
     } catch (e) {
       setSendErr(e instanceof Error ? e.message : String(e));
@@ -131,19 +143,61 @@ export const WalletPanel: React.FC<{ wallet: GameWallet }> = ({ wallet }) => {
       setSending(false);
     }
   };
+  const showKey = async () => {
+    setRevealErr(null);
+    try {
+      if (!wallet.key) throw new Error('Unlock the wallet first.');
+      if (!wallet.protectedKey) throw new Error('Protect the wallet with a PIN first (see the yellow box above).');
+      if (!(await wallet.verifyPin(revealPin))) throw new Error('Wrong PIN.');
+      setRevealPin('');
+      setRevealed(wallet.key);
+      setTimeout(() => { setRevealed(null); setKeyShown(false); }, 20_000); // the key hides itself
+    } catch (e) {
+      setRevealErr(e instanceof Error ? e.message : String(e));
+    }
+  };
   const copyKey = () => {
-    if (!wallet.key) return;
-    navigator.clipboard?.writeText(wallet.key).then(() => { setKeyCopied(true); setTimeout(() => setKeyCopied(false), 1500); }).catch(() => setStatus('Could not copy automatically. Select the key text and copy it by hand.'));
+    if (!revealed) return;
+    navigator.clipboard?.writeText(revealed).then(() => { setKeyCopied(true); setTimeout(() => setKeyCopied(false), 1500); }).catch(() => setStatus('Could not copy automatically. Select the key text and copy it by hand.'));
   };
 
-  const doImport = () => {
+  const doSetup = async () => {
+    setPinErr(null);
+    if (pin1 !== pin2) { setPinErr('The two PINs are not the same.'); return; }
+    setPinBusy(true);
     try {
-      wallet.importKey(importText);
-      setImportText('');
-      setImportOpen(false);
-      setStatus(null);
+      if (setup === 'import') await wallet.importKey(importText, pin1);
+      else await wallet.create(pin1);
+      setImportText(''); setPin1(''); setPin2(''); setSetup(null); setImportOpen(false); setStatus(null);
     } catch (e) {
-      setStatus(e instanceof Error ? e.message : String(e));
+      setPinErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setPinBusy(false);
+    }
+  };
+  const doUnlock = async () => {
+    setPinErr(null);
+    setPinBusy(true);
+    try {
+      await wallet.unlock(unlockPin);
+      setUnlockPin('');
+    } catch (e) {
+      setPinErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setPinBusy(false);
+    }
+  };
+  const doProtect = async () => {
+    setPinErr(null);
+    if (pin1 !== pin2) { setPinErr('The two PINs are not the same.'); return; }
+    setPinBusy(true);
+    try {
+      await wallet.protect(pin1);
+      setPin1(''); setPin2('');
+    } catch (e) {
+      setPinErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setPinBusy(false);
     }
   };
 
@@ -178,8 +232,30 @@ export const WalletPanel: React.FC<{ wallet: GameWallet }> = ({ wallet }) => {
               <strong className="text-zinc-200">Game wallet:</strong> entering a match places a real dreamDEX testnet order, so you need a
               testnet wallet.
             </span>
-            <button className={btn} onClick={wallet.create}>Create game wallet</button>
-            <button className={btn} onClick={() => setImportOpen((o) => !o)}>Import a testnet key</button>
+            <button className={btn} onClick={() => { setSetup('create'); setPinErr(null); }}>Create game wallet</button>
+            <button className={btn} onClick={() => { setSetup('import'); setPinErr(null); }}>Import a testnet key</button>
+          </div>
+        ) : wallet.locked ? (
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="font-mono text-zinc-200">{wallet.address?.slice(0, 8)}...{wallet.address?.slice(-6)}</span>
+            <span className="text-amber-300">Locked</span>
+            <input
+              type="password"
+              value={unlockPin}
+              onChange={(e) => setUnlockPin(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') void doUnlock(); }}
+              placeholder="Your PIN"
+              aria-label="Wallet PIN"
+              className="w-40 rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-1.5 text-xs text-white placeholder-zinc-600 focus:border-emerald-500 focus:outline-none"
+            />
+            <button className={btn} onClick={doUnlock} disabled={pinBusy}>{pinBusy ? 'Unlocking…' : 'Unlock'}</button>
+            <button
+              className="text-zinc-500 hover:text-rose-300 underline underline-offset-2"
+              onClick={() => { if (window.confirm('Forget this game wallet in this browser? Without the key or the PIN it cannot be recovered.')) wallet.forget(); }}
+            >
+              Forget wallet
+            </button>
+            {pinErr && <span className="text-rose-300">{pinErr}</span>}
           </div>
         ) : (
           <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
@@ -219,6 +295,7 @@ export const WalletPanel: React.FC<{ wallet: GameWallet }> = ({ wallet }) => {
             </span>
             {!wallet.linked && <button className={btn} onClick={withdraw} disabled={busy}>Withdraw margin to wallet</button>}
             <button className={btn} onClick={refreshBalance}>Refresh</button>
+            {wallet.protectedKey && <button className={btn} onClick={() => { wallet.lock(); setRevealed(null); setKeyShown(false); setSendOpen(false); }}>Lock</button>}
             <button className={btn} onClick={() => { setSendOpen((o) => !o); setSendErr(null); setSendDone(null); }}>Send funds</button>
             <button className={btn} onClick={() => setKeyShown((o) => !o)}>{keyShown ? 'Hide my key' : 'Back up my key'}</button>
             {wallet.linked ? (
@@ -239,12 +316,35 @@ export const WalletPanel: React.FC<{ wallet: GameWallet }> = ({ wallet }) => {
           </div>
         )}
 
+        {wallet.key && !wallet.protectedKey && (
+          <div className="space-y-2 rounded-xl border border-amber-500/40 bg-amber-950/30 p-3">
+            <div className="font-semibold text-amber-200">Protect this wallet with a PIN</div>
+            <p className="text-zinc-400">Your key is stored in this browser without protection, so anyone who opens this browser can use it. Choose a PIN (at least 6 characters, 8 or more is safer) and the key is encrypted. You will enter the PIN each time you open the site. The PIN cannot be recovered, so back up your key first if it holds funds you care about.</p>
+            <div className="flex flex-wrap items-center gap-2">
+              <input type="password" value={pin1} onChange={(e) => setPin1(e.target.value)} placeholder="New PIN" aria-label="New PIN" className="w-36 rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-1.5 text-xs text-white focus:border-emerald-500 focus:outline-none" />
+              <input type="password" value={pin2} onChange={(e) => setPin2(e.target.value)} placeholder="Repeat PIN" aria-label="Repeat PIN" className="w-36 rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-1.5 text-xs text-white focus:border-emerald-500 focus:outline-none" />
+              <button className={btn} onClick={doProtect} disabled={pinBusy}>{pinBusy ? 'Encrypting…' : 'Protect wallet'}</button>
+            </div>
+            {pinErr && <div className="text-rose-300">{pinErr}</div>}
+          </div>
+        )}
+
         {keyShown && wallet.key && (
           <div className="space-y-2 rounded-xl border border-amber-500/40 bg-amber-950/30 p-3">
             <div className="font-semibold text-amber-200">Your game wallet key (testnet only)</div>
-            <p className="text-zinc-400">Anyone with this key controls this wallet and everything in it. Do not share it or post it. Paste it into &quot;Import a testnet key&quot; on another browser or site to use the same wallet there.</p>
-            <div className="break-all rounded bg-zinc-950 p-2 font-mono text-zinc-100 select-all">{wallet.key}</div>
-            <button className={btn} onClick={copyKey}>{keyCopied ? 'Copied!' : 'Copy key'}</button>
+            <p className="text-zinc-400">Anyone with this key controls this wallet and everything in it. Make sure nobody is watching or recording. The key hides itself after 20 seconds. Paste it into &quot;Import a testnet key&quot; on another browser or site to use the same wallet there.</p>
+            {!revealed ? (
+              <div className="flex flex-wrap items-center gap-2">
+                <input type="password" value={revealPin} onChange={(e) => setRevealPin(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') void showKey(); }} placeholder="Enter your PIN" aria-label="PIN to show the key" className="w-40 rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-1.5 text-xs text-white focus:border-emerald-500 focus:outline-none" />
+                <button className={btn} onClick={showKey}>Show key</button>
+                {revealErr && <span className="text-rose-300">{revealErr}</span>}
+              </div>
+            ) : (
+              <>
+                <div className="break-all rounded bg-zinc-950 p-2 font-mono text-zinc-100 select-all">{revealed}</div>
+                <button className={btn} onClick={copyKey}>{keyCopied ? 'Copied!' : 'Copy key'}</button>
+              </>
+            )}
           </div>
         )}
 
@@ -269,6 +369,7 @@ export const WalletPanel: React.FC<{ wallet: GameWallet }> = ({ wallet }) => {
                 placeholder="Amount"
                 className="w-28 rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-1.5 text-xs text-white placeholder-zinc-600 focus:border-emerald-500 focus:outline-none"
               />
+              {wallet.protectedKey && <input type="password" value={sendPin} onChange={(e) => setSendPin(e.target.value)} placeholder="Your PIN" aria-label="PIN to send" className="w-28 rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-1.5 text-xs text-white placeholder-zinc-600 focus:border-emerald-500 focus:outline-none" />}
               <button className={btn} onClick={doSend} disabled={sending}>{sending ? <span className="inline-flex items-center gap-1.5"><Spinner className="h-3 w-3" />Sending…</span> : 'Send'}</button>
             </div>
             <p className="text-zinc-500">Pays gas in STT from this wallet. Money in your dreamDEX margin or in a match vault is not here; withdraw or claim it first.</p>
@@ -291,21 +392,25 @@ export const WalletPanel: React.FC<{ wallet: GameWallet }> = ({ wallet }) => {
 
         {wallet.linked && wallet.address && wallet.signer && <BotSetup main={wallet.address} bot={wallet.signer} />}
 
-        {importOpen && !wallet.address && (
-          <div className="flex flex-wrap items-center gap-2">
-            <input
-              type="password"
-              value={importText}
-              onChange={(e) => setImportText(e.target.value)}
-              placeholder="0x... testnet private key"
-              className="w-full sm:w-96 rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-1.5 text-xs text-white placeholder-zinc-600 focus:border-emerald-500 focus:outline-none"
-            />
-            <button className={btn} onClick={doImport}>Use this key</button>
+        {setup && !wallet.address && (
+          <div className="space-y-2 rounded-xl border border-zinc-800 bg-zinc-900/60 p-3">
+            <div className="font-semibold text-zinc-100">{setup === 'import' ? 'Import a testnet key' : 'Create a game wallet'}</div>
+            <p className="text-zinc-400">Choose a PIN (at least 6 characters, 8 or more is safer). The key is encrypted with it in this browser. You enter the PIN each time you open the site, and it cannot be recovered.</p>
+            <div className="flex flex-wrap items-center gap-2">
+              {setup === 'import' && (
+                <input type="password" value={importText} onChange={(e) => setImportText(e.target.value)} placeholder="0x... testnet private key" className="w-full sm:w-96 rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-1.5 text-xs text-white placeholder-zinc-600 focus:border-emerald-500 focus:outline-none" />
+              )}
+              <input type="password" value={pin1} onChange={(e) => setPin1(e.target.value)} placeholder="PIN" aria-label="PIN" className="w-32 rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-1.5 text-xs text-white focus:border-emerald-500 focus:outline-none" />
+              <input type="password" value={pin2} onChange={(e) => setPin2(e.target.value)} placeholder="Repeat PIN" aria-label="Repeat PIN" className="w-32 rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-1.5 text-xs text-white focus:border-emerald-500 focus:outline-none" />
+              <button className={btn} onClick={doSetup} disabled={pinBusy}>{pinBusy ? 'Encrypting…' : setup === 'import' ? 'Use this key' : 'Create wallet'}</button>
+              <button className="text-zinc-500 underline underline-offset-2" onClick={() => { setSetup(null); setPinErr(null); }}>Cancel</button>
+            </div>
+            {pinErr && <div className="text-rose-300">{pinErr}</div>}
           </div>
         )}
 
         <div className="text-[11px] text-zinc-500">
-          Testnet only. The key stays in this browser. {wallet.linked ? 'The bot needs STT for gas and USDso for stakes. Orders use your main wallet\'s margin; winnings and refunds go to it.' : wallet.address ? 'Send STT for gas to the address above, then claim the paper USDso.' : 'Never import a key that holds real money.'}
+          Testnet only. The key stays in this browser{wallet.protectedKey ? ', encrypted with your PIN' : ''}. {wallet.linked ? 'The bot needs STT for gas and USDso for stakes. Orders use your main wallet\'s margin; winnings and refunds go to it.' : wallet.address ? 'Send STT for gas to the address above, then claim the paper USDso.' : 'Never import a key that holds real money.'}
         </div>
         {status && <div className="text-[11px] text-amber-300">{status}</div>}
       </div>

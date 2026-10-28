@@ -9,3 +9,5 @@ repro-claim-key.txt
 repro-claim.txt
 .bots.json
 probe-out.txt
+tsconfig.tsbuildinfo
+bun.lock
