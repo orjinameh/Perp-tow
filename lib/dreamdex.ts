@@ -89,7 +89,10 @@ export async function loadMarkets(): Promise<{ markets: MarketQueueData[]; faile
 
   const build = async (raw: RawMarket) => {
     try {
-      const candles = await fetchCandles(raw.id, since);
+      const candles = await fetchCandles(raw.id, since).catch(async () => {
+        await new Promise((r) => setTimeout(r, 600)); // one retry: the public indexer sometimes drops a request
+        return fetchCandles(raw.id, since);
+      });
       const priceRaw = raw.lastPrice ?? raw.indexPrice;
       const price = priceRaw ? Number(priceRaw) / PRICE_SCALE : candles.length ? candles[candles.length - 1].close : NaN;
       if (!Number.isFinite(price)) throw new Error('no price');
@@ -121,7 +124,7 @@ export async function loadMarkets(): Promise<{ markets: MarketQueueData[]; faile
   // Load a few markets at a time so we do not hammer the public indexer.
   const queue = [...d.Market];
   await Promise.all(
-    Array.from({ length: 12 }, async () => {
+    Array.from({ length: 6 }, async () => {
       for (let raw = queue.shift(); raw; raw = queue.shift()) await build(raw);
     }),
   );

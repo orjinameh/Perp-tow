@@ -4,6 +4,88 @@ pragma solidity ^0.8.20;
 interface IERC20 {
     function transfer(address to, uint256 amount) external returns (bool);
     function transferFrom(address from, address to, uint256 amount) external returns (bool);
+    function balanceOf(address a) external view returns (uint256);
+    function approve(address spender, uint256 amount) external returns (bool);
+}
+
+struct VaultPosition {
+    int128 size;
+    uint128 avgEntryPrice;
+    int256 entryFundingIndex;
+    uint64 lastUpdatedTimestampNs;
+}
+
+interface IVaultBank {
+    function deposit(uint256 amount) external;
+    function withdraw(uint256 amount) external;
+    function getWithdrawableCollateral(address account) external view returns (uint256);
+    function getPosition(address account, address perpPool) external view returns (VaultPosition memory);
+}
+
+interface IPerpPoolWrite {
+    function placeOrder(bool isBid, uint64 userData, uint256 price, uint256 quantity, uint64 expireTimestampNs, uint8 orderType, uint8 selfMatchingOption, address builder, uint96 builderFeeBpsTimes1k) external;
+}
+
+interface IArenaForVault {
+    function mayTrade(bytes32 key, address owner, address caller, address pool) external view returns (bool);
+    function tradingOpen(bytes32 key) external view returns (bool);
+    function started(bytes32 key) external view returns (bool);
+    function releasable(bytes32 key) external view returns (bool);
+}
+
+/// One vault per player per match. It holds the player's equal starting bankroll in a dreamDEX margin account that ONLY
+/// this contract controls, so nothing outside the match can add to or take from the player's score. It trades only when the
+/// arena says the match is live and the caller is the player (or the player's approved bot), and it pays only its owner.
+contract TraderVault {
+    address public immutable arena;
+    address public immutable owner;
+    bytes32 public immutable key;
+    IERC20 public immutable token;
+    IVaultBank public immutable bank;
+    uint8 internal constant MARKET = 2;
+
+    constructor(address _arena, address _owner, bytes32 _key, IERC20 _token, IVaultBank _bank) {
+        arena = _arena; owner = _owner; key = _key; token = _token; bank = _bank;
+    }
+
+    /// Called once by the arena right after it sent the bankroll: puts it all into the margin bank.
+    function init() external {
+        require(msg.sender == arena, "arena only");
+        uint256 b = token.balanceOf(address(this));
+        token.approve(address(bank), b);
+        bank.deposit(b);
+    }
+
+    function _expiry() internal view returns (uint64) {
+        return uint64((block.timestamp + 3600) * 1_000_000_000);
+    }
+
+    /// A real market order on a dreamDEX perp pool, from this vault's own margin account, only while the match is live.
+    function trade(address pool, bool isBid, uint64 userData, uint256 price, uint256 quantity) external {
+        require(IArenaForVault(arena).tradingOpen(key), "match is not live");
+        require(IArenaForVault(arena).mayTrade(key, owner, msg.sender, pool), "not allowed");
+        IPerpPoolWrite(pool).placeOrder(isBid, userData, price, quantity, _expiry(), MARKET, 0, address(0), 0);
+    }
+
+    /// Closes this vault's whole position on a pool with a market order the other way. Allowed any time after the lock.
+    function close(address pool, uint256 price) external {
+        require(IArenaForVault(arena).started(key), "match has not started");
+        require(IArenaForVault(arena).mayTrade(key, owner, msg.sender, pool), "not allowed");
+        VaultPosition memory p = bank.getPosition(address(this), pool);
+        require(p.size != 0, "no position");
+        bool isBid = p.size < 0;
+        uint256 q = p.size < 0 ? uint256(-int256(p.size)) : uint256(int256(p.size));
+        IPerpPoolWrite(pool).placeOrder(isBid, 0, price, q, _expiry(), MARKET, 0, address(0), 0);
+    }
+
+    /// Anyone may call this when the arena allows it. Whatever the bank lets out goes to the owner, never anywhere else.
+    function release() external {
+        require(IArenaForVault(arena).releasable(key), "not releasable yet");
+        uint256 w = bank.getWithdrawableCollateral(address(this));
+        if (w > 0) bank.withdraw(w);
+        uint256 bal = token.balanceOf(address(this));
+        if (bal > 0) require(token.transfer(owner, bal), "transfer");
+    }
 }
 
 interface IMarginBank {
@@ -19,7 +101,7 @@ interface IOperatorPermissions {
 ///
 ///  1. A player takes a seat and stakes in the same transaction (`enter`). Leaving an open lobby refunds it.
 ///  2. When the lobby is full, or its timer ended and enough players said "continue", the match LOCKS and the
-///     teams are drawn at random, balanced to within one player. Nobody picks a side.
+///     teams are drawn at random: each player is placed by their own random draw, so teams can be uneven. Nobody picks a side.
 ///  3. Players trade freely on dreamDEX for `duration` seconds from the lock. The two teams are scored on those trades.
 ///  4. Anyone can call `settle` once the match is over. The contract reads each player's real dreamDEX account equity
 ///     from the margin bank, once at the lock and once at the end, and the team with the higher average equity
@@ -38,7 +120,7 @@ contract TugSquads {
         uint64 firstAt;   // block time of the first seat
         uint64 lockAt;    // block time the match locked (0 while open)
         bytes32 seed;     // randomness of the team draw, set at the lock
-        uint8 result;     // 0 pending, 1 team Red won, 2 team Blue won, 3 refund
+        uint8 result;     // 0 pending, 1 team Bulls won, 2 team Bears won, 3 refund
         bool cancelled;   // lobby ended without enough players: every stake is refundable
         uint256 rakeOwed;
         uint32 cap;       // seats in THIS match, chosen by whoever opens it
@@ -55,6 +137,7 @@ contract TugSquads {
     uint64 public immutable graceAfter;      // seconds after the end before an unsettled match refunds
     uint16 public immutable rakeBps;
     IMarginBank public immutable bank;       // dreamDEX margin bank: where equity is read
+    uint256 public immutable bankroll;       // equal trading bankroll every player gets in their own vault
     int256 public immutable scoreCap;        // each player's equity change is clamped to +/- this many token units
     IOperatorPermissions public immutable perms; // dreamDEX's bot permission registry (0 = not used)
     bytes4 internal constant PLACE_ORDER_FOR = 0x80054449;
@@ -65,6 +148,7 @@ contract TugSquads {
     mapping(bytes32 => mapping(address => bool)) public claimed;
     mapping(bytes32 => uint256) private _latest; // keccak(market) => highest match number used
     mapping(address => mapping(address => bool)) public botOf;
+    mapping(bytes32 => mapping(address => TraderVault)) public vaultOf;
     mapping(bytes32 => mapping(address => int256)) public startEquity; // each player's margin-bank equity at the lock
 
     event Entered(bytes32 indexed marketHash, uint256 indexed number, address indexed player, uint32 seat);
@@ -89,6 +173,7 @@ contract TugSquads {
         address perms;
         address bank;
         uint256 scoreCap;
+        uint256 bankroll;
     }
 
     constructor(Params memory p) {
@@ -106,6 +191,7 @@ contract TugSquads {
         perms = IOperatorPermissions(p.perms);
         bank = IMarginBank(p.bank);
         scoreCap = int256(p.scoreCap);
+        bankroll = p.bankroll;
     }
 
     // ------------------------------------------------------------------ bots
@@ -162,9 +248,18 @@ contract TugSquads {
         _seats[key].push(Seat(player, false));
         if (number > _latest[mh]) _latest[mh] = number;
         require(token.transferFrom(payer, address(this), stake), "stake transfer");
+        _newVault(key, player, payer);
         uint32 seat = uint32(_seats[key].length);
         emit Entered(mh, number, player, seat);
         if (seat == m.cap) _lock(key, mh, number, m.cap); // a full match locks at once
+    }
+
+    /// The player's own vault: equal bankroll, controlled by nobody but the arena rules.
+    function _newVault(bytes32 key, address player, address payer) internal {
+        TraderVault v = new TraderVault(address(this), player, key, token, IVaultBank(address(bank)));
+        require(token.transferFrom(payer, address(v), bankroll), "bankroll transfer");
+        v.init();
+        vaultOf[key][player] = v;
     }
 
     /// Give up a seat while the lobby is open. The stake comes back.
@@ -192,6 +287,7 @@ contract TugSquads {
         }
         inMatch[key][player] = false;
         require(token.transfer(player, stake), "refund");
+        vaultOf[key][player].release(); // the untouched bankroll goes back too
         emit Left(keccak256(bytes(market)), number, player);
     }
 
@@ -253,41 +349,47 @@ contract TugSquads {
         bool full = s.length == m.cap;
         for (uint256 i = 0; i < s.length; i++) {
             if (!full && !s[i].confirmed) continue;
-            startEquity[key][s[i].player] = _equity(s[i].player);
+            startEquity[key][s[i].player] = _equity(address(vaultOf[key][s[i].player]));
         }
         emit Locked(mh, number, players, m.seed);
     }
 
     // ----------------------------------------------------------------- teams
 
-    /// 0 = not playing (no seat, not confirmed, or not locked yet), 1 = Red, 2 = Blue.
-    /// The draw ranks the players by a hash of the seed and their address, then splits them in half.
+    /// 0 = not playing (no seat, not confirmed, or not locked yet), 1 = Bulls, 2 = Bears.
+    /// Every playing seat is placed by its own random draw from the match seed, so a match can split 15/5 or 10/10.
+    /// If the draw would put everybody on one side, the player with the lowest draw is moved across so both teams exist.
     function teamOf(bytes32 key, address player) public view returns (uint8) {
         Match storage m = matches[key];
         if (m.lockAt == 0 || m.cancelled || !inMatch[key][player]) return 0;
         Seat[] storage s = _seats[key];
         bool full = s.length == m.cap;
         uint256 n;
-        uint256 rank;
-        bytes32 mine = keccak256(abi.encode(m.seed, player));
+        uint256 bullsN;
         bool playing;
+        address lowest;
+        bytes32 lowestHash = bytes32(type(uint256).max);
         for (uint256 i = 0; i < s.length; i++) {
             if (!full && !s[i].confirmed) continue;
             n++;
+            bytes32 h = keccak256(abi.encode(m.seed, s[i].player));
+            if (uint256(h) & 1 == 1) bullsN++;
+            if (h < lowestHash) { lowestHash = h; lowest = s[i].player; }
             if (s[i].player == player) playing = true;
-            else if (keccak256(abi.encode(m.seed, s[i].player)) < mine) rank++;
         }
         if (!playing) return 0;
-        return rank < (n + 1) / 2 ? 1 : 2;
+        uint8 t = (uint256(keccak256(abi.encode(m.seed, player))) & 1 == 1) ? 1 : 2;
+        if (n >= 2 && (bullsN == 0 || bullsN == n) && player == lowest) t = (t == 1) ? 2 : 1;
+        return t;
     }
 
-    function teamSizes(bytes32 key) public view returns (uint32 red, uint32 blue) {
+    function teamSizes(bytes32 key) public view returns (uint32 bulls, uint32 bears) {
         Match storage m = matches[key];
         if (m.lockAt == 0 || m.cancelled) return (0, 0);
         Seat[] storage s = _seats[key];
         for (uint256 i = 0; i < s.length; i++) {
             uint8 t = teamOf(key, s[i].player);
-            if (t == 1) red++; else if (t == 2) blue++;
+            if (t == 1) bulls++; else if (t == 2) bears++;
         }
     }
 
@@ -303,14 +405,14 @@ contract TugSquads {
 
     /// One player's score: their account equity now minus at the lock, clamped to +/- scoreCap. Computed live.
     function scoreOf(bytes32 key, address player) public view returns (int256) {
-        int256 d = _equity(player) - startEquity[key][player];
+        int256 d = _equity(address(vaultOf[key][player])) - startEquity[key][player];
         if (d > scoreCap) return scoreCap;
         if (d < -scoreCap) return -scoreCap;
         return d;
     }
 
-    /// Team averages right now, times 1e18 for precision: (red, blue).
-    function teamScores(bytes32 key) public view returns (int256 red, int256 blue) {
+    /// Team averages right now, times 1e18 for precision: (bulls, bears).
+    function teamScores(bytes32 key) public view returns (int256 bulls, int256 bears) {
         (uint32 rn, uint32 bn) = teamSizes(key);
         Seat[] storage s = _seats[key];
         int256 rs;
@@ -321,8 +423,8 @@ contract TugSquads {
             int256 sc = scoreOf(key, s[i].player);
             if (t == 1) rs += sc; else bs += sc;
         }
-        if (rn > 0) red = (rs * 1e18) / int256(uint256(rn));
-        if (bn > 0) blue = (bs * 1e18) / int256(uint256(bn));
+        if (rn > 0) bulls = (rs * 1e18) / int256(uint256(rn));
+        if (bn > 0) bears = (bs * 1e18) / int256(uint256(bn));
     }
 
     /// ANYONE can settle once the match is over. The winner is computed from dreamDEX equity, not posted by anybody.
@@ -331,15 +433,15 @@ contract TugSquads {
         require(m.lockAt != 0 && m.result == 0 && !m.cancelled, "not settleable");
         require(block.timestamp >= m.lockAt + duration, "still running");
         require(block.timestamp < m.lockAt + duration + graceAfter, "refund window open");
-        (uint32 red, uint32 blue) = teamSizes(key);
+        (uint32 bulls, uint32 bears) = teamSizes(key);
         uint8 result = 3;
-        if (red > 0 && blue > 0) {
+        if (bulls > 0 && bears > 0) {
             (int256 rs, int256 bs) = teamScores(key);
             if (rs > bs) result = 1; else if (bs > rs) result = 2;
         }
         m.result = result;
-        if (result == 1) m.rakeOwed = (uint256(blue) * stake * rakeBps) / 10_000;
-        if (result == 2) m.rakeOwed = (uint256(red) * stake * rakeBps) / 10_000;
+        if (result == 1) m.rakeOwed = (uint256(bears) * stake * rakeBps) / 10_000;
+        if (result == 2) m.rakeOwed = (uint256(bulls) * stake * rakeBps) / 10_000;
         emit Settled(key, result);
     }
 
@@ -371,11 +473,12 @@ contract TugSquads {
             if (t == 0) {
                 amount = stake; // locked without this player: they did not confirm
             } else {
-                require(t == m.result, "lost");
-                (uint32 red, uint32 blue) = teamSizes(key);
-                uint256 w = m.result == 1 ? red : blue;
-                uint256 l = m.result == 1 ? blue : red;
-                amount = stake + (stake * l * (10_000 - rakeBps)) / (10_000 * w);
+                if (t == m.result) {
+                    (uint32 bulls, uint32 bears) = teamSizes(key);
+                    uint256 w = m.result == 1 ? bulls : bears;
+                    uint256 l = m.result == 1 ? bears : bulls;
+                    amount = stake + (stake * l * (10_000 - rakeBps)) / (10_000 * w);
+                } // a losing player gets nothing from the prize pool, only their bankroll back
             }
         } else if (block.timestamp >= m.firstAt + lobbySeconds + confirmSeconds + graceAfter && m.firstAt != 0) {
             amount = stake; // the lobby was never finished: everyone is refunded
@@ -383,8 +486,43 @@ contract TugSquads {
             revert("lobby still running");
         }
         claimed[key][player] = true;
-        require(token.transfer(player, amount), "payout");
+        if (amount > 0) require(token.transfer(player, amount), "payout");
+        try vaultOf[key][player].release() {} catch {} // the bankroll goes back to the player; never blocks the prize
         emit Claimed(key, player, amount);
+    }
+
+    /// Anyone can send a player's leftover bankroll back to them (for example after closing a position late).
+    function release(bytes32 key, address player) external {
+        vaultOf[key][player].release();
+    }
+
+    // ------------------------------------------------------------ vault rules
+
+    function mayTrade(bytes32, address owner, address caller, address pool) external view returns (bool) {
+        if (owner == caller || botOf[owner][caller]) return true;
+        if (address(perms) != address(0)) {
+            if (perms.isGloballyApproved(owner, caller, PLACE_ORDER_FOR)) return true;
+            if (pool != address(0) && perms.isApprovedForPool(pool, owner, caller, PLACE_ORDER_FOR)) return true;
+        }
+        return false;
+    }
+
+    function tradingOpen(bytes32 key) external view returns (bool) {
+        Match storage m = matches[key];
+        return m.lockAt != 0 && !m.cancelled && block.timestamp < m.lockAt + duration;
+    }
+
+    function started(bytes32 key) external view returns (bool) {
+        Match storage m = matches[key];
+        return m.lockAt != 0 && !m.cancelled;
+    }
+
+    /// A vault pays out only when it cannot change a score: before the lock, after a cancel, after the result is posted,
+    /// or once the refund window is open. Releasing earlier could be used to wreck a player's score.
+    function releasable(bytes32 key) external view returns (bool) {
+        Match storage m = matches[key];
+        if (m.cancelled || m.lockAt == 0) return true;
+        return m.result != 0 || block.timestamp >= m.lockAt + duration + graceAfter;
     }
 
     /// Operator collects the rake of a settled match, once.

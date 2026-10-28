@@ -33,7 +33,8 @@ const duration = num('NEXT_PUBLIC_MATCH_SECONDS', 300);
 const USDSO = '0xed7993A74dAe1e6656B704A424DcD8711aAf4F72';
 const BANK = process.env.DREAMDEX_MARGIN_BANK ?? '0x478769E1177C0773c43A593DCCc4Ad15F15F1394';
 // Most one player's equity change can count for, in USDso: stake x 10 by default (set SCORE_CAP to change).
-const SCORE_CAP = process.env.SCORE_CAP ?? '100';
+const BANKROLL = process.env.NEXT_PUBLIC_BANKROLL ?? '50'; // equal trading bankroll per player, in USDso
+const SCORE_CAP = process.env.SCORE_CAP ?? String(Number(BANKROLL) * 100);
 const PERMS = process.env.DREAMDEX_PERMISSIONS_REGISTRY ?? '0x6B2FbfeD328FF5F20C0BE7D3C3437613aFFE8D3a';
 const RPC = 'https://api.hideki2.infra.testnet.somnia.network';
 
@@ -44,7 +45,7 @@ const pub = createPublicClient({ chain: hidekiTestnet, transport: http(RPC) });
 const hash = await wallet.deployContract({
   abi: c.abi,
   bytecode: `0x${c.evm.bytecode.object}`,
-  args: [{ token: USDSO, stake: parseUnits('10', 18), size, minPlayers, lobbySeconds: BigInt(lobby), confirmSeconds: BigInt(confirmSecs), duration: BigInt(duration), graceAfter: 3600n, rakeBps: 2000, perms: PERMS, bank: BANK, scoreCap: parseUnits(SCORE_CAP, 18) }],
+  args: [{ token: USDSO, stake: parseUnits('10', 18), size, minPlayers, lobbySeconds: BigInt(lobby), confirmSeconds: BigInt(confirmSecs), duration: BigInt(duration), graceAfter: 3600n, rakeBps: 2000, perms: PERMS, bank: BANK, scoreCap: parseUnits(SCORE_CAP, 18), bankroll: parseUnits(BANKROLL, 18) }],
 });
 const rc = await pub.waitForTransactionReceipt({ hash });
 console.log(`Squads deployed: ${size} seats (min ${minPlayers}), lobby ${lobby}s, confirm ${confirmSecs}s, match ${duration}s from the lock, stake 10 USDso, rake 20%.`);

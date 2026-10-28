@@ -1,7 +1,7 @@
 import { SomniaMarkets, SOMNIA_HIDEKI_TESTNET_ADDRESSES } from '@somnia-chain/markets-sdk';
 import { hidekiTestnet } from '@somnia-chain/markets-sdk/chains';
 import { createPublicClient, createWalletClient, formatEther, formatUnits, http, parseAbi, zeroAddress } from 'viem';
-import { privateKeyToAccount } from 'viem/accounts';
+import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts';
 import { gql } from './indexer';
 import { nowSec } from './clock';
 import { PositionSide } from './types';
@@ -114,7 +114,7 @@ export async function getUsdsoBalance(address: Hex): Promise<string> {
 }
 
 /** Moves the game wallet's USDso into its perps margin bank, which is where perp orders lock their margin. */
-export async function depositAllToMargin(key: Hex, address: Hex): Promise<string> {
+export async function depositAllToMargin(key: Hex, address: Hex, amountUsd?: number): Promise<string> {
   const ex = makeExchange(key);
   const rows = (await ex.client.listPerpMarkets()) as unknown as PerpRow[];
   const bank = (rows.find((r) => r.baseSymbol === 'BTC') ?? rows[0])?.marginBank;
@@ -128,6 +128,12 @@ export async function depositAllToMargin(key: Hex, address: Hex): Promise<string
   })) as bigint;
   // With the escrow on, keep 20 USDso in the wallet for stakes; the rest goes to margin.
   if (process.env.NEXT_PUBLIC_ESCROW_ADDRESS) raw = raw > 20n * 10n ** 18n ? raw - 20n * 10n ** 18n : 0n;
+  if (amountUsd !== undefined) {
+    const want = BigInt(Math.round(amountUsd * 1e6)) * 10n ** 12n;
+    if (want <= 0n) throw new Error('Enter an amount above 0.');
+    if (want > raw) throw new Error(`Only ${formatUnits(raw, 18)} USDso is available to deposit.`);
+    raw = want;
+  }
   if (raw === 0n) throw new Error('Nothing to deposit (with the escrow on, 20 USDso stay in the wallet for stakes).');
 
   const deposit = (ex.trader as unknown as Record<string, (...a: unknown[]) => Promise<unknown>>).depositMargin;
@@ -399,4 +405,91 @@ export async function myDirection(key: Hex, address: Hex, ticker: string): Promi
   const mine = positions.find((p) => p.symbol.toUpperCase().startsWith(ticker.toUpperCase()));
   if (!mine) throw new Error(`Could not read the side of your ${ticker} position.`);
   return mine.side === 'long' ? 'long' : 'short';
+}
+
+
+// ---------------------------------------------------------------- vault trading (squads)
+
+const VAULT_ABI = parseAbi([
+  'function trade(address pool, bool isBid, uint64 userData, uint256 price, uint256 quantity)',
+  'function close(address pool, uint256 price)',
+]);
+const BANK_POSITION_ABI = parseAbi(['function getPosition(address account, address perpPool) view returns ((int128 size, uint128 avgEntryPrice, int256 entryFundingIndex, uint64 lastUpdatedTimestampNs))']);
+
+async function perpRow(key: Hex, ticker: string): Promise<PerpRow> {
+  const rows = (await makeExchange(key).client.listPerpMarkets()) as unknown as PerpRow[];
+  const m = rows.find((r) => r.baseSymbol === ticker);
+  if (!m) throw new Error(`${ticker} is not a dreamDEX perp market right now.`);
+  return m;
+}
+
+function vaultError(e: unknown): Error {
+  const text = (e instanceof Error ? (e as { shortMessage?: string }).shortMessage ?? e.message : String(e)).replace(/\s+/g, ' ');
+  if (/match is not live/i.test(text)) return new Error('This match is not live right now, so the vault cannot trade.');
+  if (/not allowed/i.test(text)) return new Error('This game wallet is not allowed to trade for that vault. Add it as a bot for your main wallet in the dreamDEX app.');
+  if (/no position/i.test(text)) return new Error('This vault has no open position to close.');
+  return new Error(text.slice(0, 300));
+}
+
+/** A real market order from the player's own vault. `positionUsd` is the size of the position in dollars. */
+export async function vaultOrder(key: Hex, vault: Hex, ticker: string, side: 'buy' | 'sell', positionUsd: number, matchNumber: number): Promise<string> {
+  const m = await perpRow(key, ticker);
+  const isBid = side === 'buy';
+  const dec = BigInt(m.baseDecimals);
+  const tick = BigInt(m.tickSize);
+  const lot = BigInt(m.lotSize);
+  const min = BigInt(m.minQuantity);
+  const mark = BigInt(m.markPrice);
+  const slipped = isBid ? (mark * (10_000n + SLIPPAGE_BPS)) / 10_000n : (mark * (10_000n - SLIPPAGE_BPS)) / 10_000n;
+  const price = tick > 0n ? (slipped / tick) * tick : slipped;
+  const usd18 = BigInt(Math.round(positionUsd * 1e6)) * 10n ** 12n;
+  let quantity = (usd18 * 10n ** dec) / mark;
+  quantity = lot > 0n ? (quantity / lot) * lot : quantity;
+  if (quantity < min) quantity = lot > 0n ? ((min + lot - 1n) / lot) * lot : min;
+  const wallet = createWalletClient({ chain: hidekiTestnet, transport: http(RPC_URL), account: privateKeyToAccount(key) });
+  const pub = createPublicClient({ chain: hidekiTestnet, transport: http(RPC_URL) });
+  const args = [m.poolAddress, isBid, BigInt(encodeUserData(matchNumber)), price, quantity] as const;
+  try {
+    await pub.simulateContract({ address: vault, abi: VAULT_ABI, functionName: 'trade', args, account: wallet.account });
+    const hash = await wallet.writeContract({ address: vault, abi: VAULT_ABI, functionName: 'trade', args });
+    const rc = await pub.waitForTransactionReceipt({ hash });
+    if (rc.status !== 'success') throw new Error('The order reverted on chain.');
+    return hash;
+  } catch (e) {
+    throw vaultError(e);
+  }
+}
+
+/** Closes the vault's whole position on the market with a market order the other way. */
+export async function vaultClose(key: Hex, vault: Hex, ticker: string): Promise<string> {
+  const m = await perpRow(key, ticker);
+  const pub = createPublicClient({ chain: hidekiTestnet, transport: http(RPC_URL) });
+  const pos = (await pub.readContract({ address: m.marginBank, abi: BANK_POSITION_ABI, functionName: 'getPosition', args: [vault, m.poolAddress] })) as { size: bigint };
+  if (pos.size === 0n) throw new Error('This vault has no open position to close.');
+  const isBid = pos.size < 0n; // closing a short means buying
+  const mark = BigInt(m.markPrice);
+  const tick = BigInt(m.tickSize);
+  const slipped = isBid ? (mark * (10_000n + SLIPPAGE_BPS)) / 10_000n : (mark * (10_000n - SLIPPAGE_BPS)) / 10_000n;
+  const price = tick > 0n ? (slipped / tick) * tick : slipped;
+  const wallet = createWalletClient({ chain: hidekiTestnet, transport: http(RPC_URL), account: privateKeyToAccount(key) });
+  try {
+    await pub.simulateContract({ address: vault, abi: VAULT_ABI, functionName: 'close', args: [m.poolAddress, price], account: wallet.account });
+    const hash = await wallet.writeContract({ address: vault, abi: VAULT_ABI, functionName: 'close', args: [m.poolAddress, price] });
+    const rc = await pub.waitForTransactionReceipt({ hash });
+    if (rc.status !== 'success') throw new Error('The close reverted on chain.');
+    return hash;
+  } catch (e) {
+    throw vaultError(e);
+  }
+}
+
+/** The vault's open position on a market, read from the margin bank. size > 0 long, < 0 short. */
+export async function vaultPosition(vault: Hex, ticker: string): Promise<{ size: number; entry: number } | null> {
+  const rows = (await new SomniaMarkets({ ...baseConfig(), privateKey: generatePrivateKey() }).client.listPerpMarkets()) as unknown as PerpRow[];
+  const m = rows.find((r) => r.baseSymbol === ticker);
+  if (!m) return null;
+  const pub = createPublicClient({ chain: hidekiTestnet, transport: http(RPC_URL) });
+  const p = (await pub.readContract({ address: m.marginBank, abi: BANK_POSITION_ABI, functionName: 'getPosition', args: [vault, m.poolAddress] })) as { size: bigint; avgEntryPrice: bigint };
+  if (p.size === 0n) return null;
+  return { size: Number(p.size) / 10 ** m.baseDecimals, entry: Number(p.avgEntryPrice) / 1e18 };
 }

@@ -22,7 +22,7 @@ const ABI = parseAbi([
   'function claim(bytes32 key, address player)',
   'function claimFor(address player, address pool, bytes32 key)',
   'function settle(bytes32 key)',
-  'function teamScores(bytes32 key) view returns (int256 red, int256 blue)',
+  'function teamScores(bytes32 key) view returns (int256 bulls, int256 bears)',
   'function scoreOf(bytes32 key, address player) view returns (int256)',
   'function latestMatch(string market) view returns (uint256)',
   'function roster(string market, uint256 number) view returns (address[] players, bool[] confirmed, uint8[] teams, uint64 firstAt, uint64 lockAt, bool cancelled, uint8 result, uint32 cap)',
@@ -35,6 +35,9 @@ const ABI = parseAbi([
   'function duration() view returns (uint64)',
   'function graceAfter() view returns (uint64)',
   'function stake() view returns (uint256)',
+  'function bankroll() view returns (uint256)',
+  'function vaultOf(bytes32, address) view returns (address)',
+  'function release(bytes32 key, address player)',
   'function rakeBps() view returns (uint16)',
 ]);
 const ERC20 = parseAbi(['function approve(address,uint256) returns (bool)', 'function allowance(address,address) view returns (uint256)', 'function balanceOf(address) view returns (uint256)']);
@@ -53,6 +56,7 @@ export interface SquadParams {
   duration: number; // seconds from the lock to the end of the match
   graceAfter: number;
   stakeUsd: number;
+  bankrollUsd: number; // equal trading bankroll each player gets in their own vault
   rake: number; // 0.2 = 20%
 }
 
@@ -60,13 +64,14 @@ let paramsCache: SquadParams | null = null;
 /** The rules exactly as the contract was deployed, so the app can never drift from them. */
 export async function readSquadParams(): Promise<SquadParams> {
   if (paramsCache) return paramsCache;
+  const bankrollRaw = await read<bigint>('bankroll');
   const [size, minPlayers, lobbySeconds, confirmSeconds, duration, graceAfter, stake, rakeBps] = await Promise.all([
     read<number>('size'), read<number>('minPlayers'), read<bigint>('lobbySeconds'), read<bigint>('confirmSeconds'),
     read<bigint>('duration'), read<bigint>('graceAfter'), read<bigint>('stake'), read<number>('rakeBps'),
   ]);
   paramsCache = {
     size: Number(size), minPlayers: Number(minPlayers), lobbySeconds: Number(lobbySeconds), confirmSeconds: Number(confirmSeconds),
-    duration: Number(duration), graceAfter: Number(graceAfter), stakeUsd: Number(stake / 10n ** 12n) / 1e6, rake: Number(rakeBps) / 10_000,
+    duration: Number(duration), graceAfter: Number(graceAfter), stakeUsd: Number(stake / 10n ** 12n) / 1e6, bankrollUsd: Number(bankrollRaw / 10n ** 12n) / 1e6, rake: Number(rakeBps) / 10_000,
   };
   return paramsCache;
 }
@@ -85,12 +90,12 @@ export interface SquadMatch {
   endsAt: number; // lockAt + duration, 0 until locked
   lobbyEndsAt: number;
   confirmEndsAt: number;
-  result: 0 | 1 | 2 | 3; // 0 pending, 1 Red, 2 Blue, 3 refund
-  red: number;
-  blue: number;
+  result: 0 | 1 | 2 | 3; // 0 pending, 1 Bulls, 2 Bears, 3 refund
+  bulls: number;
+  bears: number;
 }
 
-export const TEAM_NAME = { 1: 'Red', 2: 'Blue' } as const;
+export const TEAM_NAME = { 1: 'Bulls', 2: 'Bears' } as const;
 
 /** The newest matches on one market, straight from the contract. Phases come from its own timestamps and settings. */
 export async function loadSquadMatches(ticker: string, window = 20): Promise<SquadMatch[]> {
@@ -117,7 +122,7 @@ export async function loadSquadMatches(ticker: string, window = 20): Promise<Squ
       const list = players.map((a, i) => ({ address: a as string, confirmed: confirmed[i], team: Number(teams[i]) as 0 | 1 | 2 }));
       return {
         id: `${ticker} #${number}`, ticker, number, size: Number(cap), players: list, phase, firstAt: first, lockAt: lock, endsAt, lobbyEndsAt, confirmEndsAt,
-        result: Number(result) as SquadMatch['result'], red: list.filter((x) => x.team === 1).length, blue: list.filter((x) => x.team === 2).length,
+        result: Number(result) as SquadMatch['result'], bulls: list.filter((x) => x.team === 1).length, bears: list.filter((x) => x.team === 2).length,
       } satisfies SquadMatch;
     }),
   );
@@ -146,7 +151,7 @@ function friendly(e: unknown): Error {
   if (/lobby still open/i.test(text)) return new Error('The lobby is still open on the chain. Wait a few seconds and try again.');
   if (/confirm window closed/i.test(text)) return new Error('The confirm window has closed.');
   if (/not in this match/i.test(text)) return new Error('This wallet has no seat in this match.');
-  if (/transfer|allowance|exceeds balance/i.test(text)) return new Error('Not enough USDso to stake $10 (or the approval did not go through). Check the wallet that pays the stake.');
+  if (/transfer|allowance|exceeds balance/i.test(text)) return new Error('Not enough USDso for the stake plus the trading bankroll (or the approval did not go through). Check the wallet that pays.');
   if (/lost/.test(text)) return new Error('Your team lost this match, so there is nothing to claim.');
   if (/not settled/i.test(text)) return new Error('The result has not been settled yet. Press Settle once the match is over.');
   return new Error(text.slice(0, 280));
@@ -170,9 +175,9 @@ export async function enterSquad(key: Hex, ticker: string, number: number, playe
   if (!squadsEnabled) throw new Error('The squads contract is not set up yet.');
   const payer = privateKeyToAccount(key).address;
   const p = await readSquadParams();
-  const stake = BigInt(Math.round(p.stakeUsd * 1e6)) * 10n ** 12n;
+  const stake = BigInt(Math.round((p.stakeUsd + p.bankrollUsd) * 1e6)) * 10n ** 12n; // the stake plus the vault bankroll
   const have = await pub().readContract({ address: USDSO, abi: ERC20, functionName: 'balanceOf', args: [payer] });
-  if (have < stake) throw new Error(`The wallet that pays the stake needs at least $${p.stakeUsd} of USDso. It has ${(Number(have) / 1e18).toFixed(2)}.`);
+  if (have < stake) throw new Error(`The wallet that pays the stake needs at least $${p.stakeUsd + p.bankrollUsd} of USDso ($${p.stakeUsd} stake + $${p.bankrollUsd} trading bankroll that comes back to you). It has ${(Number(have) / 1e18).toFixed(2)}.`);
   const allowance = await pub().readContract({ address: USDSO, abi: ERC20, functionName: 'allowance', args: [payer, SQUADS_ADDRESS as Hex] });
   if (allowance < stake) await send2(key, USDSO, ERC20, 'approve', [SQUADS_ADDRESS, stake * 100n]);
   if (forOther(key, player)) {
@@ -209,12 +214,21 @@ export async function claimSquad(key: Hex, ticker: string, number: number, playe
 export const settleSquad = (key: Hex, ticker: string, number: number) => send(key, 'settle', [squadKey(ticker, number)]);
 
 /** The contract's own live team scores (average equity change in USDso, capped per player): exactly what settle will use. */
-export async function squadScores(ticker: string, number: number): Promise<{ red: number; blue: number }> {
-  const [red, blue] = await read<readonly [bigint, bigint]>('teamScores', [squadKey(ticker, number)]);
-  return { red: Number(red) / 1e36, blue: Number(blue) / 1e36 };
+export async function squadScores(ticker: string, number: number): Promise<{ bulls: number; bears: number }> {
+  const [bulls, bears] = await read<readonly [bigint, bigint]>('teamScores', [squadKey(ticker, number)]);
+  return { bulls: Number(bulls) / 1e36, bears: Number(bears) / 1e36 };
 }
 
 /** Whether a player has already been paid for a match. */
 export async function squadClaimed(ticker: string, number: number, player: Hex): Promise<boolean> {
   return read<boolean>('claimed', [squadKey(ticker, number), player]);
+}
+
+/** Sends a player's leftover bankroll from their vault back to them. Anyone may call it; the money only goes to the player. */
+export const releaseSquad = (key: Hex, ticker: string, number: number, player: Hex) => send(key, 'release', [squadKey(ticker, number), player]);
+
+/** A player's own trading vault for a match (a contract only they, or their approved bot, can trade from). */
+export async function vaultAddress(ticker: string, number: number, player: string): Promise<Hex | null> {
+  const v = await read<Hex>('vaultOf', [squadKey(ticker, number), player]);
+  return /^0x0{40}$/i.test(v) ? null : v;
 }

@@ -537,8 +537,8 @@ export const World3D: React.FC<Props> = (props) => {
           line(0.73, 'Leverage', `${lev}x: $${NOMINAL_STAKE_USD} x ${lev} = $${NOMINAL_STAKE_USD * lev} exposure`);
         }
         c.fillStyle = '#cbd5e1'; c.font = '30px system-ui, sans-serif';
-        c.fillText(sq ? 'Taking the seat stakes $10. Leave before the lock and it comes back.' : 'Confirming takes your seat. Leave before the lock and nothing is lost.', 48, ch * 0.85);
-        c.fillText(sq ? 'Better team average gain wins; verified on chain.' : 'Keep this tab open: your trade is placed automatically at the lock.', 48, ch * 0.92);
+        c.fillText(sq ? 'Stake + your own trading vault. Leave before the lock and both come back.' : 'Confirming takes your seat. Leave before the lock and nothing is lost.', 48, ch * 0.85);
+        c.fillText(sq ? 'Better team average vault gain wins; verified on chain.' : 'Keep this tab open: your trade is placed automatically at the lock.', 48, ch * 0.92);
       }, tX, 2.7, 0);
       faceRoom(ticket.mesh, Math.PI / 2);
       const ticketPad = (z: number, color: number, css: string, text: string, act: () => void) => {
@@ -893,40 +893,40 @@ export const World3D: React.FC<Props> = (props) => {
           finishable: 'Lobby ended: anyone can lock the match',
           trading: `TRADING: ${mm(A.left)} left`,
           ended: 'Time is up: press Settle',
-          settled: A.result === 3 ? 'Tie: everyone is refunded' : A.result === 1 ? 'RED WINS' : 'BLUE WINS',
+          settled: A.result === 3 ? 'Tie: everyone is refunded' : A.result === 1 ? 'BULLS WIN' : 'BEARS WIN',
           cancelled: 'Cancelled: stakes are refundable',
         };
         c.fillStyle = '#f8fafc'; c.font = 'bold 84px system-ui, sans-serif'; c.fillText(A.id, cw / 2, ch * 0.28);
-        c.fillStyle = A.phase === 'trading' ? '#34d399' : A.phase === 'settled' ? (A.result === 1 ? '#f87171' : A.result === 2 ? '#60a5fa' : '#fbbf24') : '#fbbf24';
+        c.fillStyle = A.phase === 'trading' ? '#34d399' : A.phase === 'settled' ? (A.result === 1 ? '#34d399' : A.result === 2 ? '#fb7185' : '#fbbf24') : '#fbbf24';
         c.font = 'bold 60px system-ui, sans-serif'; c.fillText(text[A.phase] ?? A.phase, cw / 2, ch * 0.62);
         c.fillStyle = '#94a3b8'; c.font = '36px system-ui, sans-serif';
-        c.fillText(A.phase === 'filling' || A.phase === 'confirming' ? 'Teams are drawn at random at the lock. Nobody picks a side.' : 'Both teams trade freely. Better average account gain wins.', cw / 2, ch * 0.86);
+        c.fillText(A.phase === 'filling' || A.phase === 'confirming' ? 'Bulls and Bears are drawn at random at the lock. Nobody picks a side.' : 'Both teams trade freely. Better average vault gain wins.', cw / 2, ch * 0.86);
       }, 0, 4.2, -d / 2 + 0.3);
       const rope = sign(9, 1.6, 1280, (c, cw, ch) => {
         const A = live.current.arena;
         c.fillStyle = 'rgba(8,15,30,0.94)'; c.fillRect(0, 0, cw, ch);
-        const hasScores = !!A && A.red !== null && A.blue !== null && A.players.some((p) => p.team !== 0);
+        const hasScores = !!A && A.bulls !== null && A.bears !== null && A.players.some((p) => p.team !== 0);
         const bx = 60, bw = cw - 120, by = ch * 0.5, bh = 36;
-        c.fillStyle = '#1e3a8a'; c.fillRect(bx, by, bw, bh);
+        c.fillStyle = '#9f1239'; c.fillRect(bx, by, bw, bh);
         let fillW = bw / 2;
         if (hasScores) {
           const cap = 100;
-          const gap = (A!.red as number) - (A!.blue as number);
+          const gap = (A!.bulls as number) - (A!.bears as number);
           fillW = bw * (0.5 + 0.5 * Math.max(-1, Math.min(1, gap / cap)));
         }
-        c.fillStyle = '#dc2626'; c.fillRect(bx, by, fillW, bh);
+        c.fillStyle = '#059669'; c.fillRect(bx, by, fillW, bh);
         c.fillStyle = '#f8fafc'; c.fillRect(bx + fillW - 6, by - 12, 12, bh + 24);
         c.textBaseline = 'middle'; c.font = 'bold 44px system-ui, sans-serif';
-        c.textAlign = 'left'; c.fillStyle = '#f87171'; c.fillText(hasScores ? `RED ${(A!.red as number) >= 0 ? '+' : ''}${(A!.red as number).toFixed(2)} USDso` : 'RED', bx, ch * 0.22);
-        c.textAlign = 'right'; c.fillStyle = '#60a5fa'; c.fillText(hasScores ? `BLUE ${(A!.blue as number) >= 0 ? '+' : ''}${(A!.blue as number).toFixed(2)} USDso` : 'BLUE', bx + bw, ch * 0.22);
+        c.textAlign = 'left'; c.fillStyle = '#34d399'; c.fillText(hasScores ? `BULLS ${(A!.bulls as number) >= 0 ? '+' : ''}${(A!.bulls as number).toFixed(2)} USDso` : 'BULLS', bx, ch * 0.22);
+        c.textAlign = 'right'; c.fillStyle = '#fb7185'; c.fillText(hasScores ? `BEARS ${(A!.bears as number) >= 0 ? '+' : ''}${(A!.bears as number).toFixed(2)} USDso` : 'BEARS', bx + bw, ch * 0.22);
         c.textAlign = 'center'; c.fillStyle = '#94a3b8'; c.font = '30px system-ui, sans-serif';
-        c.fillText(hasScores ? 'Average account gain per team, read from the chain' : 'The rope moves once the match locks and teams trade', cw / 2, ch * 0.88);
+        c.fillText(hasScores ? 'Average vault gain per team, read from the chain' : 'The rope moves once the match locks and teams trade', cw / 2, ch * 0.88);
       }, 0, 2.2, -d / 2 + 0.3);
       let sig = '';
       ticks.push(() => {
         const A = live.current.arena;
         const n = A ? A.players.length : 0;
-        const next = JSON.stringify([A?.id, A?.phase, A?.size, A?.result, A?.red, A?.blue, Math.floor(A?.left ?? 0), A?.players.map((p) => [p.team, p.isMe])]);
+        const next = JSON.stringify([A?.id, A?.phase, A?.size, A?.result, A?.bulls, A?.bears, Math.floor(A?.left ?? 0), A?.players.map((p) => [p.team, p.isMe])]);
         if (next === sig) return;
         sig = next;
         const total = Math.max(A?.size ?? 0, n);
@@ -942,7 +942,7 @@ export const World3D: React.FC<Props> = (props) => {
           pg.body.visible = pg.head.visible = !!pl;
           pg.body.position.set(x, 0.45, z);
           pg.head.position.set(x, 1.15, z);
-          if (pl) pg.mat.color.setHex(pl.team === 1 ? 0xef4444 : pl.team === 2 ? 0x3b82f6 : 0xcbd5e1);
+          if (pl) pg.mat.color.setHex(pl.team === 1 ? 0x10b981 : pl.team === 2 ? 0xf43f5e : 0xcbd5e1);
           (pg.ring.material as THREE.MeshBasicMaterial).color.setHex(pl?.isMe ? 0xfacc15 : 0x64748b);
         }
         board.redraw();

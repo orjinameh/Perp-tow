@@ -9,23 +9,26 @@ visible; strike out what is wrong and add what is missing. Every change is check
 - Must use real dreamDEX data and real orders. No simulation, no mock data: show real data or an empty/offline state.
 - The admin approved USDso escrow. Builds are secret: do not share links or tokens, and keep contract addresses, keys and deploy transactions out of the README, X posts and repo.
 
-## Game rules (squads, the one game)
-- One game only. No Bulls/Bears pick, no "classic" game, no old direction-based flow.
-- Players take a seat in a match room. Teams are assigned to players at random when the match locks (Red / Blue). Nobody picks a team.
-- Open question for the owner: balanced random teams (within one player, current) or fully random teams (even 19 v 1)? "Do what's best" was said, so balanced is built.
-- Stake: $10 USDso per player, taken when the seat is taken. Leaving before the lock returns it.
-- Room size: the host chooses it when opening a room, from 2 up to the contract's deployed maximum. Original rule was 20 players. Set NEXT_PUBLIC_MATCH_SIZE=20 before deploying squads.
-- Lobby timer, then "continue with fewer players" (at least 2) window, then lock. A full room locks at once. A match that never starts refunds everyone.
-- After the lock, players trade freely on dreamDEX: any direction, any leverage, any number of trades.
-- Match length: set by NEXT_PUBLIC_MATCH_SECONDS (default 5 minutes) from the lock.
-- Winner: the team with the better average real account equity change (each player's change capped), computed on chain by `settle`, which anyone can call. Tie refunds everyone.
-- Payout: winners get stake back plus 80% of the losers' pool; 20% rake. Anyone can claim for a player.
-- If nobody settles, refunds open after the grace period.
+## Game rules (the one game: Tug of War)
+Stated by the owner (this is the spec; supersedes anything older):
+1. Enable multiple trades: players trade as often as they like during a match.
+2. Random teams that support asymmetric splits, e.g. 15 vs 5, while making sure the numbers are not an advantage. Teams are Bulls and Bears (the original names), but nobody chooses a side: players are assigned at random.
+3. Dynamic team size with a limit of 20 players per match (the host picks the room size, 2 to 20).
+4. One contract wallet per player (a trading vault that only trades for its owner and pays only its owner).
+5. Change the flat screens into their respective 3D rooms.
+
+How the build meets them:
+- Each player is placed by their own random draw from the match seed, so 15/5 is possible. If everybody would land on one team, the lowest draw is moved across so both teams exist.
+- Numbers are no advantage: a team's score is the AVERAGE vault gain of its players, and payouts are per head (winners get their stake back plus 80% of the losers' pool shared among the winning team's players, so a smaller winning team gets more per head).
+- Stake $10 USDso per player at the seat, plus an equal trading bankroll that goes into the player's own vault and comes back to them. Leaving before the lock returns both.
+- Lobby timer, then a "continue with fewer players" window (at least 2), then lock. A full room locks at once. A match that never starts refunds everyone.
+- Match length: NEXT_PUBLIC_MATCH_SECONDS from the lock (default 5 minutes). Anyone can settle after it ends; the contract computes the winner from vault equity on the dreamDEX margin bank. A tie refunds everyone.
+- 20% rake on the losers' pool.
 
 ## Product / UX
 - The 3D world is the main experience: hub with a door per market, a market room, an arena. The same app shell (navbar, wallet panel, History, Leaders, rules modal) stays.
 - Market room: wall of open matches (with pads to join), an "open a new match" pad, a left-wall entry ticket with confirm and back pads.
-- Arena: seat ring, status board, live rope showing each team's score, a trade panel.
+- Arena: seat ring (seats turn green for Bulls or rose for Bears at the lock), status board, live rope between Bulls and Bears, a trade panel.
 - Hosting a match lets the host choose size (and, later, market and stake).
 - Everything must look like the app (dark theme, styled controls). Unstyled controls are bugs.
 - A flat 2D version exists as a fallback only if the 3D world fails to start.

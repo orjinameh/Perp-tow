@@ -14,7 +14,7 @@ interface Props {
   onOpenRing: () => void; // "Open a new match room"
 }
 
-const TEAM_COLOR = { 0: 0xbfc5d0, 1: 0xef4444, 2: 0x3b82f6 } as const;
+const TEAM_COLOR = { 0: 0xbfc5d0, 1: 0x10b981, 2: 0xf43f5e } as const;
 
 function label(text: string[], w = 512, h = 128, bg = '#111827'): THREE.CanvasTexture {
   const c = document.createElement('canvas');

@@ -6,12 +6,11 @@ import type { GameWallet } from '@/lib/useGameWallet';
 import type { LiveMarkets } from '@/lib/useLiveMarkets';
 import { useProgress } from '@/lib/useProgress';
 import {
-  SquadMatch, SquadParams, TEAM_NAME, claimSquad, confirmSquad, enterSquad, finishSquad, leaveSquad,
+  SquadMatch, SquadParams, TEAM_NAME, claimSquad, confirmSquad, enterSquad, finishSquad, leaveSquad, releaseSquad, vaultAddress,
   loadSquadMatches, nextSquadNumber, readSquadParams, settleSquad, squadClaimed, squadScores, squadsEnabled,
 } from '@/lib/squads';
-import { enterMatch, closeMyPosition, myDirection } from '@/lib/trading';
+import { vaultOrder, vaultClose, vaultPosition } from '@/lib/trading';
 import { nowSec } from '@/lib/clock';
-import { leverageChoices } from '@/lib/gameTag';
 import type { GameMatch } from '@/lib/types';
 import type { SquadArenaView, WorldRoom } from '@/components/World3D';
 
@@ -29,13 +28,14 @@ export function SquadsGame({ wallet, live }: { wallet: GameWallet; live: LiveMar
   const [params, setParams] = useState<SquadParams | null>(null);
   const [matches, setMatches] = useState<SquadMatch[]>([]);
   const [selected, setSelected] = useState<number | null>(null);
-  const [chain, setChain] = useState<{ red: number; blue: number } | null>(null);
+  const [chain, setChain] = useState<{ bulls: number; bears: number } | null>(null);
   const [claimed, setClaimed] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [now, setNow] = useState(0);
   const [side, setSide] = useState<'bulls' | 'bears'>('bulls');
-  const [margin, setMargin] = useState(10);
-  const [lev, setLev] = useState(2);
+  const [positionUsd, setPositionUsd] = useState(50);
+  const [vault, setVault] = useState<Hex | null>(null);
+  const [position, setPosition] = useState<{ size: number; entry: number } | null>(null);
   const [picker, setPicker] = useState(false);
   const [ticket, setTicket] = useState<SquadMatch | 'new' | null>(null);
   const [newSize, setNewSize] = useState(4);
@@ -76,6 +76,24 @@ export function SquadsGame({ wallet, live }: { wallet: GameWallet; live: LiveMar
     if (match && me && match.phase !== 'filling') squadClaimed(ticker, match.number, me).then(setClaimed).catch(() => {});
   }, [match?.number, match?.phase, me, ticker]);
 
+  // My own vault for this match, and the position it holds.
+  useEffect(() => {
+    setVault(null); setPosition(null);
+    if (!match || !me || !mine) return;
+    let stop = false;
+    vaultAddress(ticker, match.number, me).then((v) => { if (!stop) setVault(v); }).catch(() => {});
+    return () => { stop = true; };
+  }, [match?.number, !!mine, me, ticker]);
+  useEffect(() => {
+    if (!vault || !match || match.phase === 'filling' || match.phase === 'confirming') return;
+    let stop = false;
+    const go = () => vaultPosition(vault, ticker).then((p) => { if (!stop) setPosition(p); }).catch(() => {});
+    void go();
+    const t = setInterval(go, 6000);
+    return () => { stop = true; clearInterval(t); };
+  }, [vault, match?.phase, ticker]);
+  useEffect(() => { if (params) setPositionUsd((x) => (x === 50 ? params.bankrollUsd : x)); }, [params?.bankrollUsd]);
+
   const key = wallet.key as Hex | null;
 
   const act = async (title: string, labels: string[], fn: () => Promise<unknown>) => {
@@ -104,15 +122,16 @@ export function SquadsGame({ wallet, live }: { wallet: GameWallet; live: LiveMar
   const finish = (m: SquadMatch) => key && act('Locking the match', ['Lock'], () => finishSquad(key, ticker, m.number));
   const settle = (m: SquadMatch) => key && act('Settling', ['Computing the result on chain'], () => settleSquad(key, ticker, m.number));
   const claim = (m: SquadMatch) => key && act('Claiming', ['Pay out'], () => claimSquad(key, ticker, m.number, me as Hex));
-  const trade = () => key && match && act('Opening your trade', ['Sending order'], () => enterMatch({ key, address: me as Hex, ticker, side, matchNumber: match.number, stakeUsd: margin, leverage: lev }));
-  const close = () => key && act('Closing your trade', ['Closing'], () => closeMyPosition(key, me as Hex, ticker));
+  const trade = () => key && vault && match && act('Opening your trade', ['Sending order from your vault'], () => vaultOrder(key, vault, ticker, side === 'bulls' ? 'buy' : 'sell', positionUsd, match.number));
+  const close = () => key && vault && act('Closing your position', ['Closing'], () => vaultClose(key, vault, ticker));
+  const release = (m: SquadMatch) => key && act('Releasing your bankroll', ['Sending it back'], () => releaseSquad(key, ticker, m.number, me as Hex));
 
   if (!squadsEnabled) {
     return <Shell><p>Squads mode is not switched on: <code>NEXT_PUBLIC_SQUADS_ADDRESS</code> is empty. Run <code>npm run deploy:squads</code>.</p></Shell>;
   }
 
   const left = match ? (match.phase === 'filling' ? match.lobbyEndsAt - now : match.phase === 'confirming' ? match.confirmEndsAt - now : match.phase === 'trading' ? match.endsAt - now : 0) : 0;
-  const gap = chain ? chain.red - chain.blue : 0;
+  const gap = chain ? chain.bulls - chain.bears : 0;
   const w = !chain || gap === 0 ? 3 : gap > 0 ? 1 : 2;
   const cap = (params?.stakeUsd ?? 10) * 10;
   const lead = Math.max(-1, Math.min(1, gap / cap)); // a full cap of difference fills the rope
@@ -139,9 +158,9 @@ export function SquadsGame({ wallet, live }: { wallet: GameWallet; live: LiveMar
 
           {chain && match.lockAt > 0 && (
             <div className="my-3">
-              <div className="flex justify-between text-sm"><span>Red {chain.red >= 0 ? '+' : ''}{chain.red.toFixed(2)} USDso</span><span>Blue {chain.blue >= 0 ? '+' : ''}{chain.blue.toFixed(2)} USDso</span></div>
-              <div className="h-3 rounded bg-blue-500/60 relative overflow-hidden">
-                <div className="absolute inset-y-0 left-0 bg-red-500/80 transition-all" style={{ width: `${50 + lead * 50}%` }} />
+              <div className="flex justify-between text-sm"><span>Bulls {chain.bulls >= 0 ? '+' : ''}{chain.bulls.toFixed(2)} USDso</span><span>Bears {chain.bears >= 0 ? '+' : ''}{chain.bears.toFixed(2)} USDso</span></div>
+              <div className="h-3 rounded bg-rose-600/70 relative overflow-hidden">
+                <div className="absolute inset-y-0 left-0 bg-emerald-500/80 transition-all" style={{ width: `${50 + lead * 50}%` }} />
               </div>
             </div>
           )}
@@ -152,31 +171,30 @@ export function SquadsGame({ wallet, live }: { wallet: GameWallet; live: LiveMar
             {mine && match.phase === 'confirming' && !mine.confirmed && <button className="border rounded px-3 py-1" onClick={() => confirm(match)}>Continue with fewer players</button>}
             {match.phase === 'confirming' && <button className="border rounded px-3 py-1" onClick={() => leave(match)} disabled={!mine}>Leave</button>}
             {match.phase === 'finishable' && <button className="border rounded px-3 py-1" onClick={() => finish(match)}>Lock the match</button>}
-            {mine && ['cancelled', 'settled'].includes(match.phase) && !claimed && (match.phase === 'cancelled' || match.result === 3 || (match.result === mine.team)) && (
-              <button className="border rounded px-3 py-1" onClick={() => claim(match)}>{match.phase === 'cancelled' || match.result === 3 ? 'Claim refund' : 'Claim payout'}</button>
+            {mine && ['cancelled', 'settled'].includes(match.phase) && !claimed && (
+              <button className="border rounded px-3 py-1" onClick={() => claim(match)}>{match.phase === 'cancelled' || match.result === 3 ? 'Claim refund + bankroll' : match.result === mine.team ? 'Claim payout + bankroll' : 'Get my bankroll back'}</button>
             )}
+            {mine && claimed && ['cancelled', 'settled'].includes(match.phase) && <button className="border rounded px-3 py-1" onClick={() => release(match)}>Release leftover bankroll</button>}
             {match.phase === 'ended' && <button className="border rounded px-3 py-1" onClick={() => settle(match)}>Settle the result</button>}
             {claimed && <span className="text-sm">Paid out.</span>}
           </div>
 
           {mine && match.phase === 'trading' && market && (
             <div className="mt-4 border-t pt-3">
-              <h3 className="font-medium mb-2">Your trade (real dreamDEX position)</h3>
+              <h3 className="font-medium mb-1">Your vault (real dreamDEX position)</h3>
+              <p className="text-xs opacity-70 mb-2">Your own contract holds your ${params?.bankrollUsd ?? 50} bankroll. Only you (or your bot) can trade from it, and it pays only you.{position ? ` Open: ${position.size > 0 ? 'long' : 'short'} ${Math.abs(position.size)} ${ticker} @ ${position.entry.toFixed(2)}.` : ' No open position.'}</p>
               <div className="flex flex-wrap items-center gap-2 text-sm">
                 <button className={`border rounded px-3 py-1 ${side === 'bulls' ? 'ring-2' : ''}`} onClick={() => setSide('bulls')}>Buy</button>
                 <button className={`border rounded px-3 py-1 ${side === 'bears' ? 'ring-2' : ''}`} onClick={() => setSide('bears')}>Sell</button>
-                <label>Margin $<input className="w-16 border rounded px-1 ml-1 bg-transparent" type="number" min={1} value={margin} onChange={(e) => setMargin(Math.max(1, Number(e.target.value)))} /></label>
-                <select className="border rounded px-1 bg-transparent" value={lev} onChange={(e) => setLev(Number(e.target.value))}>
-                  {leverageChoices(market.maxLeverage).map((l) => <option key={l} value={l}>{l}x</option>)}
-                </select>
-                <button className="border rounded px-3 py-1" onClick={trade}>Place trade</button>
-                <button className="border rounded px-3 py-1" onClick={close}>Close position</button>
+                <label>Position $<input className="w-20 border rounded px-1 ml-1 bg-transparent" type="number" min={1} value={positionUsd} onChange={(e) => setPositionUsd(Math.max(1, Number(e.target.value)))} /></label>
+                <button className="border rounded px-3 py-1" onClick={trade} disabled={!vault}>Place trade</button>
+                <button className="border rounded px-3 py-1" onClick={close} disabled={!vault || !position}>Close position</button>
               </div>
-              <p className="text-xs opacity-70 mt-2">Trade as often as you like in either direction. Your score is how much your real dreamDEX account equity changed since the lock (capped), open positions included.</p>
+              <p className="text-xs opacity-70 mt-2">Trade as often as you like in either direction. Your score is how much your vault's equity changed since the lock, open positions included. Nothing outside the match can change it.</p>
             </div>
           )}
 
-          {match.phase === 'ended' && <p className="text-sm mt-3">Time is up. Leading team: {chain ? (w === 3 ? 'tie' : w === 1 ? 'Red' : 'Blue') : '…'}. Anyone can press Settle: the contract computes the winner from dreamDEX equity, then winners claim.</p>}
+          {match.phase === 'ended' && <p className="text-sm mt-3">Time is up. Leading team: {chain ? (w === 3 ? 'tie' : w === 1 ? 'Bulls' : 'Bears') : '…'}. Anyone can press Settle: the contract computes the winner from dreamDEX equity, then winners claim.</p>}
           {match.phase === 'settled' && <p className="text-sm mt-3">Result: {match.result === 3 ? 'tie (refund)' : `${TEAM_NAME[match.result as 1 | 2]} won`}.</p>}
         </section>
   ) : null;
@@ -189,10 +207,10 @@ export function SquadsGame({ wallet, live }: { wallet: GameWallet; live: LiveMar
     lobbyEndsAt: m.lobbyEndsAt,
     playersList: m.players.map((p) => ({ isUser: !!me && p.address.toLowerCase() === me.toLowerCase(), side: 'bulls' })),
   } as unknown as GameMatch);
-  const draft: SquadMatch | null = draftNumber ? { id: `${ticker} #${draftNumber}`, ticker, number: draftNumber, size: Math.max(2, Math.min(newSize, params?.size ?? newSize)), players: [], phase: 'filling', firstAt: 0, lockAt: 0, endsAt: 0, lobbyEndsAt: 0, confirmEndsAt: 0, result: 0, red: 0, blue: 0 } : null;
+  const draft: SquadMatch | null = draftNumber ? { id: `${ticker} #${draftNumber}`, ticker, number: draftNumber, size: Math.max(2, Math.min(newSize, params?.size ?? newSize)), players: [], phase: 'filling', firstAt: 0, lockAt: 0, endsAt: 0, lobbyEndsAt: 0, confirmEndsAt: 0, result: 0, bulls: 0, bears: 0 } : null;
   const ticketMatch = ticket === 'new' ? draft : ticket;
   const arena: SquadArenaView | null = match
-    ? { id: match.id, phase: match.phase, left: Math.max(0, left), size: match.size, players: match.players.map((p) => ({ team: p.team, confirmed: p.confirmed, isMe: !!me && p.address.toLowerCase() === me.toLowerCase() })), red: chain ? chain.red : null, blue: chain ? chain.blue : null, result: match.result }
+    ? { id: match.id, phase: match.phase, left: Math.max(0, left), size: match.size, players: match.players.map((p) => ({ team: p.team, confirmed: p.confirmed, isMe: !!me && p.address.toLowerCase() === me.toLowerCase() })), bulls: chain ? chain.bulls : null, bears: chain ? chain.bears : null, result: match.result }
     : null;
   const worldView = (
     <div className="relative h-[calc(100dvh-12rem)] min-h-[480px] rounded border overflow-hidden">
@@ -285,13 +303,14 @@ export function SquadsGame({ wallet, live }: { wallet: GameWallet; live: LiveMar
               <dl className="text-sm my-3 space-y-2">
                 <div className="flex justify-between"><dt className="opacity-70">Market</dt><dd>{ticker}-PERP, only {ticker} players</dd></div>
                 <div className="flex justify-between"><dt className="opacity-70">Stake</dt><dd>${stakeUsd.toFixed(2)} USDso, paid when you take the seat</dd></div>
+                <div className="flex justify-between"><dt className="opacity-70">Trading bankroll</dt><dd>${(params?.bankrollUsd ?? 50).toFixed(2)} in your own vault, returned to you</dd></div>
                 <div className="flex justify-between"><dt className="opacity-70">Pool at a full room</dt><dd>${(stakeUsd * size).toFixed(2)}</dd></div>
                 <div className="flex justify-between items-center"><dt className="opacity-70">Seats</dt><dd>{t ? `${seated} / ${size} taken` : (<select className="bg-transparent border rounded px-1" value={size} onChange={(e) => setNewSize(Number(e.target.value))}>{Array.from({ length: Math.max(1, maxSize - 1) }, (_, i) => i + 2).map((n) => <option key={n} value={n} className="text-black">{n} players</option>)}</select>)}</dd></div>
                 <div className="flex justify-between"><dt className="opacity-70">Your team</dt><dd>Drawn at random at the lock</dd></div>
-                <div className="flex justify-between"><dt className="opacity-70">Winner</dt><dd>Team with the bigger real account gain</dd></div>
+                <div className="flex justify-between"><dt className="opacity-70">Winner</dt><dd>Team with the bigger average vault gain</dd></div>
                 <div className="flex justify-between"><dt className="opacity-70">Payout</dt><dd>Stake back + {Math.round((1 - (params?.rake ?? 0.2)) * 100)}% of the losers' pool</dd></div>
               </dl>
-              <p className="text-xs opacity-70 mb-3">Taking the seat stakes ${stakeUsd}. Leave before the lock and the stake comes straight back. Nobody picks a side: once the match locks you can trade any direction, with any leverage, as often as you like. A tie or a match that never starts refunds everyone.</p>
+              <p className="text-xs opacity-70 mb-3">Taking the seat stakes ${stakeUsd} and funds your own trading vault with the bankroll. Leave before the lock and both come straight back. Nobody picks a side: once the match locks you can trade any direction, as often as you like from your vault. A tie or a match that never starts refunds everyone.</p>
               <div className="flex gap-2">
                 <button className="border rounded px-3 py-1" onClick={() => setTicket(null)}>Back</button>
                 <button className="border rounded px-3 py-1" onClick={() => { const x = ticket; setTicket(null); if (x === 'new') void open(); else join(x); }}>Take my seat</button>
