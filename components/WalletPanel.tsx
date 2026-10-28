@@ -38,6 +38,7 @@ export const WalletPanel: React.FC<{ wallet: GameWallet }> = ({ wallet }) => {
   const [sendErr, setSendErr] = useState<string | null>(null);
   const [sendDone, setSendDone] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
+  const [amount, setAmount] = useState(''); // all hooks stay above the early return below
 
   const refreshBalance = useCallback(async () => {
     if (!wallet.address) return;
@@ -78,7 +79,6 @@ export const WalletPanel: React.FC<{ wallet: GameWallet }> = ({ wallet }) => {
     }
   };
 
-  const [amount, setAmount] = useState('');
   const deposit = async () => {
     if (!wallet.key || !wallet.address) return;
     setBusy(true);
