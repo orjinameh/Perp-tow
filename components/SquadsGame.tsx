@@ -12,6 +12,7 @@ import {
 import { vaultOrder, vaultClose, vaultPosition } from '@/lib/trading';
 import { nowSec } from '@/lib/clock';
 import type { GameMatch } from '@/lib/types';
+import { Modal, btnGhost, btnPrimary } from '@/components/Modal';
 import type { SquadArenaView, WorldRoom } from '@/components/World3D';
 
 const Hall = dynamic(() => import('@/components/SquadsHall3D').then((m) => m.SquadsHall3D), { ssr: false, loading: () => <div className="h-[420px] flex items-center justify-center text-sm opacity-70">Building the hall…</div> });
@@ -39,6 +40,9 @@ export function SquadsGame({ wallet, live }: { wallet: GameWallet; live: LiveMar
   const [picker, setPicker] = useState(false);
   const [ticket, setTicket] = useState<SquadMatch | 'new' | null>(null);
   const [newSize, setNewSize] = useState(4);
+  const [openModal, setOpenModal] = useState(false);
+  const [sizeText, setSizeText] = useState('4');
+  const [notice, setNotice] = useState<{ title: string; body: React.ReactNode } | null>(null);
   const [view, setView] = useState<'world' | 'screens'>('world');
   const [room, setRoom] = useState<WorldRoom>({ kind: 'hub' });
   const [draftNumber, setDraftNumber] = useState<number | null>(null);
@@ -96,6 +100,32 @@ export function SquadsGame({ wallet, live }: { wallet: GameWallet; live: LiveMar
 
   const key = wallet.key as Hex | null;
 
+  const sizeError = (() => {
+    const t = sizeText.trim();
+    if (!t) return 'Enter how many players the room should hold.';
+    if (!/^\d+$/.test(t)) return 'Use a whole number, for example 6.';
+    const n = Number(t);
+    if (n < 2) return 'A match needs at least 2 players.';
+    if (n > 20) return 'The most a match can have is 20 players.';
+    if (params && n > params.size) return `This game is set up for rooms of up to ${params.size} players. Try ${params.size} or fewer.`;
+    return null;
+  })();
+  /** True (and tells the player why) when they cannot act yet. */
+  const blocked = (): boolean => {
+    if (!wallet.ready) { setNotice({ title: 'One moment', body: 'Your wallet is still loading. Try again in a second.' }); return true; }
+    if (!key || !me) {
+      setNotice({
+        title: 'Create your game wallet first',
+        body: (<>
+          <p>Taking a seat needs a game wallet. Use the wallet panel at the top of the page to create one (or link your main wallet).</p>
+          <p className="mt-2 text-zinc-400">Then send it a little STT for gas and some USDso: ${(params?.stakeUsd ?? 10) + (params?.bankrollUsd ?? 50)} per match ({params?.stakeUsd ?? 10} stake + {params?.bankrollUsd ?? 50} trading bankroll that comes back to you).</p>
+        </>),
+      });
+      return true;
+    }
+    return false;
+  };
+
   const act = async (title: string, labels: string[], fn: () => Promise<unknown>) => {
     const out = await progress.run(title, labels, async (adv) => { adv(0); await fn(); });
     await reload();
@@ -103,17 +133,17 @@ export function SquadsGame({ wallet, live }: { wallet: GameWallet; live: LiveMar
   };
   const toArena = () => setRoom({ kind: 'arena', ticker });
 
-  const open = async () => {
-    if (!key) return;
+  const open = async (size?: number) => {
+    if (blocked() || !key) return;
     const ok = await act('Opening a match', ['Seat + stake'], async () => {
       const n = await nextSquadNumber(ticker);
-      await enterSquad(key, ticker, n, me as Hex, Math.max(2, Math.min(newSize, params?.size ?? newSize)));
+      await enterSquad(key, ticker, n, me as Hex, Math.max(2, Math.min(size ?? newSize, params?.size ?? 20)));
       setSelected(n);
     });
     if (ok) { setTicket(null); if (view === 'world') toArena(); }
   };
   const join = async (m: SquadMatch) => {
-    if (!key) return;
+    if (blocked() || !key) return;
     const ok = await act('Taking your seat', ['Seat + stake'], () => enterSquad(key, ticker, m.number, me as Hex, m.size));
     if (ok) { setSelected(m.number); setTicket(null); if (view === 'world') toArena(); }
   };
@@ -122,6 +152,7 @@ export function SquadsGame({ wallet, live }: { wallet: GameWallet; live: LiveMar
   const finish = (m: SquadMatch) => key && act('Locking the match', ['Lock'], () => finishSquad(key, ticker, m.number));
   const settle = (m: SquadMatch) => key && act('Settling', ['Computing the result on chain'], () => settleSquad(key, ticker, m.number));
   const claim = (m: SquadMatch) => key && act('Claiming', ['Pay out'], () => claimSquad(key, ticker, m.number, me as Hex));
+  const openRoomModal = () => { if (blocked()) return; setSizeText(String(Math.min(4, params?.size ?? 4))); setOpenModal(true); };
   const trade = () => key && vault && match && act('Opening your trade', ['Sending order from your vault'], () => vaultOrder(key, vault, ticker, side === 'bulls' ? 'buy' : 'sell', positionUsd, match.number));
   const close = () => key && vault && act('Closing your position', ['Closing'], () => vaultClose(key, vault, ticker));
   const release = (m: SquadMatch) => key && act('Releasing your bankroll', ['Sending it back'], () => releaseSquad(key, ticker, m.number, me as Hex));
@@ -231,11 +262,12 @@ export function SquadsGame({ wallet, live }: { wallet: GameWallet; live: LiveMar
         onPickMatch={(g) => {
           const m = matches.find((x) => x.id === g.id);
           if (!m) return;
+          if (blocked()) return;
           setSelected(m.number);
           if (me && m.players.some((p) => p.address.toLowerCase() === me.toLowerCase())) { setTicket(null); toArena(); } else setTicket(m);
         }}
-        onOpenNew={async () => { setDraftNumber(await nextSquadNumber(ticker).catch(() => null)); setTicket('new'); }}
-        onConfirmSeat={() => { if (ticket === 'new') void open(); else if (ticket) void join(ticket); }}
+        onOpenNew={openRoomModal}
+        onConfirmSeat={() => { if (ticket && ticket !== 'new') void join(ticket); }}
         onCloseTicket={() => setTicket(null)}
         onBackToLobby={() => { setTicket(null); if (room.kind === 'arena') setRoom({ kind: 'market', ticker }); else setRoom({ kind: 'hub' }); }}
         onResume={() => {}}
@@ -244,13 +276,9 @@ export function SquadsGame({ wallet, live }: { wallet: GameWallet; live: LiveMar
       {room.kind === 'arena' && panel && (
         <div className="absolute left-3 top-3 z-10 w-[min(92vw,26rem)] max-h-[85%] overflow-y-auto rounded-xl border border-zinc-700 bg-zinc-950/90 text-zinc-100 p-2 text-sm">{panel}</div>
       )}
-      {room.kind === 'market' && ticket === 'new' && (
-        <div className="absolute right-3 top-3 z-10 flex items-center gap-2 rounded-xl border border-zinc-700 bg-zinc-950/90 px-3 py-2 text-xs text-zinc-200">
-          Room size
-          <select className="bg-transparent border rounded px-1" value={Math.max(2, Math.min(newSize, params?.size ?? newSize))} onChange={(e) => setNewSize(Number(e.target.value))}>
-            {Array.from({ length: Math.max(1, (params?.size ?? 4) - 1) }, (_, i) => i + 2).map((n) => <option key={n} value={n} className="text-black">{n} players</option>)}
-          </select>
-        </div>
+      {error && <div className="absolute inset-x-3 bottom-3 z-10 rounded-xl border border-rose-500/40 bg-rose-950/80 px-3 py-2 text-xs text-rose-200">{error}</div>}
+      {!wallet.ready ? null : !key && (
+        <div className="absolute inset-x-3 top-12 z-10 rounded-xl border border-amber-500/40 bg-amber-950/80 px-3 py-2 text-xs text-amber-200">No game wallet yet. Create one in the wallet panel above to take a seat.</div>
       )}
       {room.kind === 'hub' && <div className="pointer-events-none absolute left-3 top-3 rounded-xl border border-zinc-800 bg-zinc-950/80 px-3 py-2 text-xs text-zinc-300">Walk into a market door. Random teams, free trading, ${params?.stakeUsd ?? 10} stake.</div>}
     </div>
@@ -259,15 +287,45 @@ export function SquadsGame({ wallet, live }: { wallet: GameWallet; live: LiveMar
   return (
     <Shell>
       {progress.modal}
+      {notice && <Modal title={notice.title} onClose={() => setNotice(null)} footer={<button className={btnPrimary} onClick={() => setNotice(null)}>OK</button>}>{notice.body}</Modal>}
+      {openModal && (
+        <Modal
+          title="Open a new match room"
+          onClose={() => setOpenModal(false)}
+          footer={<>
+            <button className={btnGhost} onClick={() => setOpenModal(false)}>Cancel</button>
+            <button className={btnPrimary} disabled={!!sizeError} onClick={() => { setOpenModal(false); void open(Number(sizeText)); }}>Open room and take my seat</button>
+          </>}
+        >
+          <label className="block">
+            <span className="mb-1 block text-xs font-semibold uppercase tracking-wider text-zinc-400">How many players? (2 to {Math.min(20, params?.size ?? 20)})</span>
+            <input
+              autoFocus
+              inputMode="numeric"
+              value={sizeText}
+              onChange={(e) => setSizeText(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter' && !sizeError) { setOpenModal(false); void open(Number(sizeText)); } }}
+              className={`w-full rounded-lg border bg-zinc-950 px-3 py-2 text-lg font-mono outline-none focus:border-emerald-500 ${sizeError ? 'border-rose-500' : 'border-zinc-700'}`}
+              aria-invalid={!!sizeError}
+            />
+          </label>
+          {sizeError ? <p className="text-xs text-rose-400">{sizeError}</p> : <p className="text-xs text-emerald-400">Teams are drawn at random at the lock, so they can be uneven.</p>}
+          <dl className="space-y-1 rounded-lg bg-zinc-950/60 p-3 text-xs text-zinc-300">
+            <div className="flex justify-between"><dt>Stake</dt><dd>${(params?.stakeUsd ?? 10).toFixed(2)} USDso</dd></div>
+            <div className="flex justify-between"><dt>Your trading bankroll (comes back)</dt><dd>${(params?.bankrollUsd ?? 50).toFixed(2)} USDso</dd></div>
+            <div className="flex justify-between"><dt>You pay now</dt><dd>${((params?.stakeUsd ?? 10) + (params?.bankrollUsd ?? 50)).toFixed(2)} USDso</dd></div>
+          </dl>
+        </Modal>
+      )}
       {view === 'world' ? worldView : (<>
       <div className="flex flex-wrap items-center gap-3 mb-4">
         <select className="border rounded px-2 py-1 bg-transparent" value={ticker} onChange={(e) => { setTicker(e.target.value); setSelected(null); }}>
           {(live.markets.length ? live.markets.map((m) => m.ticker) : ['BTC']).map((t) => <option key={t}>{t}</option>)}
         </select>
-        <button className="border rounded px-3 py-1" onClick={() => setTicket('new')} disabled={!key || !me}>Open a new match (${params?.stakeUsd ?? 10} stake)</button>
+        <button className="border rounded px-3 py-1" onClick={() => openRoomModal()} disabled={!key || !me}>Open a new match (${params?.stakeUsd ?? 10} stake)</button>
       </div>
       <div className="mb-4">
-        <Hall matches={matches} size={params?.size ?? 4} me={me} now={now} selected={match} onJoinRing={() => setPicker(true)} onOpenRing={() => setTicket('new')} />
+        <Hall matches={matches} size={params?.size ?? 4} me={me} now={now} selected={match} onJoinRing={() => setPicker(true)} onOpenRing={() => openRoomModal()} />
       </div>
       {view === 'screens' && picker && (
         <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4" onClick={() => setPicker(false)}>
@@ -305,7 +363,7 @@ export function SquadsGame({ wallet, live }: { wallet: GameWallet; live: LiveMar
                 <div className="flex justify-between"><dt className="opacity-70">Stake</dt><dd>${stakeUsd.toFixed(2)} USDso, paid when you take the seat</dd></div>
                 <div className="flex justify-between"><dt className="opacity-70">Trading bankroll</dt><dd>${(params?.bankrollUsd ?? 50).toFixed(2)} in your own vault, returned to you</dd></div>
                 <div className="flex justify-between"><dt className="opacity-70">Pool at a full room</dt><dd>${(stakeUsd * size).toFixed(2)}</dd></div>
-                <div className="flex justify-between items-center"><dt className="opacity-70">Seats</dt><dd>{t ? `${seated} / ${size} taken` : (<select className="bg-transparent border rounded px-1" value={size} onChange={(e) => setNewSize(Number(e.target.value))}>{Array.from({ length: Math.max(1, maxSize - 1) }, (_, i) => i + 2).map((n) => <option key={n} value={n} className="text-black">{n} players</option>)}</select>)}</dd></div>
+                <div className="flex justify-between items-center"><dt className="opacity-70">Seats</dt><dd>{seated} / {size} taken</dd></div>
                 <div className="flex justify-between"><dt className="opacity-70">Your team</dt><dd>Drawn at random at the lock</dd></div>
                 <div className="flex justify-between"><dt className="opacity-70">Winner</dt><dd>Team with the bigger average vault gain</dd></div>
                 <div className="flex justify-between"><dt className="opacity-70">Payout</dt><dd>Stake back + {Math.round((1 - (params?.rake ?? 0.2)) * 100)}% of the losers' pool</dd></div>

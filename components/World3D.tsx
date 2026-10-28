@@ -3,6 +3,8 @@
 import { nowSec } from '@/lib/clock';
 import React, { useEffect, useRef } from 'react';
 import * as THREE from 'three';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
 import { GameMatch, MarketQueueData, PositionSide } from '@/lib/types';
 import { matchPull } from '@/lib/matches';
 import { MATCH_SIZE, NOMINAL_STAKE_USD } from '@/lib/gameTag';
@@ -62,6 +64,18 @@ interface Trigger {
   progress?: (f: number) => void;
   fades: boolean;
 }
+
+// The rope and the Bull and Bear characters are light models served from /public/models; loaded once, cloned per seat.
+const modelCache: Record<string, Promise<THREE.Object3D>> = {};
+const loadModel = (name: 'rope' | 'bull' | 'bear'): Promise<THREE.Object3D> => {
+  if (!modelCache[name]) {
+    modelCache[name] = new GLTFLoader().loadAsync(`/models/${name}.glb`).then((g) => g.scene).catch((e) => {
+      delete modelCache[name];
+      throw e;
+    });
+  }
+  return modelCache[name];
+};
 
 const SPEED = 4.2;
 const FOOT = 0.42;
@@ -859,27 +873,204 @@ export const World3D: React.FC<Props> = (props) => {
     };
 
 
-    // ---------- SQUADS ARENA: a seat ring, a status board, and the live rope between the two random teams ----------
+    // ---------- SQUADS ARENA: the real rope (a skinned model), Bulls and Bears characters pulling on it, rope moved by the on-chain scores ----------
+    let arenaSerial = 0;
     const buildSquadArena = (ticker: string) => {
-      const w = 22;
+      const token = ++arenaSerial;
+      const w = 30;
       const d = 16;
       roomShell(w, d, 0x161d30, 0x0f1628);
+      const ROPE_SX = 2.2; // the rope model is 8 long: stretched to 17.6 so up to ten columns can reach it
+      const ROPE_SY = 1.15;
+      const SEG = 0.5 * ROPE_SX; // world length of one rope bone
       const MAXSEATS = 20;
-      const R = 3.2;
-      const cz = 1.5;
-      const rim = new THREE.Mesh(new THREE.RingGeometry(R + 0.55, R + 0.7, 64), new THREE.MeshBasicMaterial({ color: 0x94a3b8, side: THREE.DoubleSide }));
-      rim.rotation.x = -Math.PI / 2; rim.position.set(0, 0.03, cz); add(rim);
-      const pegs: { body: THREE.Mesh; head: THREE.Mesh; mat: THREE.MeshStandardMaterial; ring: THREE.Mesh }[] = [];
-      for (let i = 0; i < MAXSEATS; i++) {
-        const mat = new THREE.MeshStandardMaterial({ color: 0x475569, roughness: 0.5 });
-        const body = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.34, 0.9, 16), mat);
-        const head = new THREE.Mesh(new THREE.SphereGeometry(0.24, 16, 12), mat);
-        const ring = new THREE.Mesh(new THREE.RingGeometry(0.45, 0.55, 24), new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.DoubleSide }));
-        ring.rotation.x = -Math.PI / 2;
-        body.visible = head.visible = ring.visible = false;
-        add(body); add(head); add(ring);
-        pegs.push({ body, head, mat, ring });
+
+      // floor: the centre line and the two finish marks the rope is pulled toward
+      const floorLine = (x: number, color: number, wd: number) => {
+        const m = new THREE.Mesh(new THREE.PlaneGeometry(wd, 5), new THREE.MeshBasicMaterial({ color }));
+        m.rotation.x = -Math.PI / 2;
+        m.position.set(x, 0.03, 0);
+        add(m);
+      };
+      floorLine(0, 0xf8fafc, 0.1);
+      floorLine(-3.4, 0x10b981, 0.07);
+      floorLine(3.4, 0xf43f5e, 0.07);
+      const teamLabel = (x: number, text: string, css: string) => {
+        const p = sign(3.2, 0.9, 512, (c, cw, ch) => {
+          c.fillStyle = css;
+          c.font = 'bold 84px system-ui, sans-serif';
+          c.textAlign = 'center';
+          c.textBaseline = 'middle';
+          c.fillText(text, cw / 2, ch / 2);
+        }, x, 3.4, -3.2, true);
+        frames.push(() => p.mesh.lookAt(camera.position));
+      };
+      teamLabel(-6, 'BULLS', '#34d399');
+      teamLabel(6, 'BEARS', '#fb7185');
+
+      // the rope group moves with its pullers, so the red centre mark drifts toward the winning side
+      const team = new THREE.Group();
+      add(team);
+      const ropeGroup = new THREE.Group();
+      ropeGroup.scale.set(ROPE_SX, ROPE_SY, ROPE_SY);
+      team.add(ropeGroup);
+      // plain stand-in until the model is loaded (or if it cannot be)
+      const plainRope = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, SEG * 16, 8), stdMat(0xc9a66b, 0.95));
+      plainRope.rotation.z = Math.PI / 2;
+      plainRope.position.y = ROPE_SY;
+      team.add(plainRope);
+      const plainFlag = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.4, 0.08), stdMat(0xdc2626, 0.5));
+      plainFlag.position.y = ROPE_SY - 0.3;
+      team.add(plainFlag);
+      let ropeBones: { l: THREE.Object3D[]; r: THREE.Object3D[] } | null = null as { l: THREE.Object3D[]; r: THREE.Object3D[] } | null;
+      let sig = '';
+      const ready: Record<string, boolean> = { rope: false, bull: false, bear: false };
+      const tpl: Record<number, THREE.Object3D | undefined> = {};
+
+      loadModel('rope')
+        .then((g) => {
+          if (token !== arenaSerial) return;
+          const m = cloneSkinned(g);
+          m.traverse((o) => { o.frustumCulled = false; });
+          ropeGroup.add(m);
+          const l: THREE.Object3D[] = [];
+          const r: THREE.Object3D[] = [];
+          for (let k = 1; k <= 8; k++) {
+            const a = m.getObjectByName(`RopeL_0${k}`);
+            const b = m.getObjectByName(`RopeR_0${k}`);
+            if (a) l.push(a);
+            if (b) r.push(b);
+          }
+          ropeBones = { l, r };
+          plainRope.visible = false;
+          plainFlag.visible = false;
+          ready.rope = true;
+        })
+        .catch(() => undefined);
+      const loadTeam = (name: 'bull' | 'bear', t: 1 | 2) =>
+        loadModel(name)
+          .then((g) => {
+            if (token !== arenaSerial) return;
+            const base = cloneSkinned(g);
+            // the blue overalls take the team colour
+            base.traverse((o) => {
+              const mesh = o as THREE.Mesh;
+              if (!mesh.isMesh) return;
+              mesh.frustumCulled = false;
+              const mat = mesh.material as THREE.MeshStandardMaterial;
+              if (mat && mat.name === 'blue') {
+                const c = mat.clone();
+                c.color.setHex(t === 1 ? 0x059669 : 0xe11d48);
+                mesh.material = c;
+              }
+            });
+            tpl[t] = base;
+            ready[name] = true;
+            sig = '';
+          })
+          .catch(() => undefined);
+      loadTeam('bull', 1);
+      loadTeam('bear', 2);
+
+      // a rig for one cloned character: the bones we move, and the rest direction of each arm bone
+      interface Rig {
+        spine: THREE.Object3D;
+        chest: THREE.Object3D;
+        upL: THREE.Object3D; foreL: THREE.Object3D;
+        upR: THREE.Object3D; foreR: THREE.Object3D;
+        restUpL: THREE.Vector3; restForeL: THREE.Vector3;
+        restUpR: THREE.Vector3; restForeR: THREE.Vector3;
       }
+      const makeRig = (m: THREE.Object3D): Rig | null => {
+        const g = (n: string) => m.getObjectByName(n);
+        const spine = g('Spine'), chest = g('Chest');
+        const upL = g('LeftArm'), foreL = g('LeftForeArm'), handL = g('LeftHand');
+        const upR = g('RightArm'), foreR = g('RightForeArm'), handR = g('RightHand');
+        if (!spine || !chest || !upL || !foreL || !handL || !upR || !foreR || !handR) return null;
+        return {
+          spine, chest, upL, foreL, upR, foreR,
+          restUpL: foreL.position.clone().normalize(), restForeL: handL.position.clone().normalize(),
+          restUpR: foreR.position.clone().normalize(), restForeR: handR.position.clone().normalize(),
+        };
+      };
+
+      interface Puller {
+        holder: THREE.Group;
+        ring: THREE.Mesh;
+        peg: THREE.Group;
+        pegMat: THREE.MeshStandardMaterial;
+        model: THREE.Object3D | null;
+        rig: Rig | null;
+        phase: number;
+        sx: number;
+        x: number;
+        z: number;
+        on: boolean;
+      }
+      const ringMesh = (inner: number, outer: number) => {
+        const r = new THREE.Mesh(new THREE.RingGeometry(inner, outer, 28), new THREE.MeshBasicMaterial({ color: 0x64748b, side: THREE.DoubleSide, transparent: true, opacity: 0.8 }));
+        r.rotation.x = -Math.PI / 2;
+        r.visible = false;
+        return r;
+      };
+      const makePeg = () => {
+        const mat = new THREE.MeshStandardMaterial({ color: 0x475569, roughness: 0.5 });
+        const g = new THREE.Group();
+        const body = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.34, 0.9, 16), mat);
+        body.position.y = 0.45;
+        const head = new THREE.Mesh(new THREE.SphereGeometry(0.24, 16, 12), mat);
+        head.position.y = 1.15;
+        g.add(body, head);
+        g.visible = false;
+        return { g, mat };
+      };
+      const mkPool = (sx: number): Puller[] =>
+        Array.from({ length: MAXSEATS }, (_, i) => {
+          const holder = new THREE.Group();
+          holder.scale.setScalar(0.85);
+          holder.visible = false;
+          team.add(holder);
+          const { g: peg, mat: pegMat } = makePeg();
+          peg.scale.setScalar(1 / 0.85);
+          holder.add(peg);
+          const ring = ringMesh(0.5, 0.62);
+          team.add(ring);
+          const col = i >> 1;
+          return { holder, ring, peg, pegMat, model: null, rig: null, phase: i * 0.7, sx, x: sx * (1.5 + col * 0.95), z: i % 2 === 0 ? -0.45 : 0.45, on: false };
+        });
+      const bulls = mkPool(-1);
+      const bears = mkPool(1);
+      // lobby: before the lock nobody has a team yet, so everyone waits in a neutral line
+      const lobby = Array.from({ length: MAXSEATS }, () => {
+        const { g, mat } = makePeg();
+        const ring = ringMesh(0.45, 0.58);
+        add(g);
+        add(ring);
+        return { g, mat, ring };
+      });
+
+      // rope sag: the middle hangs, tension straightens it
+      let sagA = 0.05;
+      const ropeYAt = (xl: number) => {
+        let ang = 0;
+        let y = 1;
+        let rem = Math.abs(xl) / SEG;
+        for (let k = 0; k < 8 && rem > 0; k++) {
+          const step = Math.min(1, rem);
+          ang += sagA;
+          y += 0.5 * Math.sin(ang) * step;
+          rem -= step;
+        }
+        return y * ROPE_SY;
+      };
+      const aim = (bone: THREE.Object3D, rest: THREE.Vector3, targetWorld: THREE.Vector3) => {
+        const par = bone.parent;
+        if (!par) return;
+        const local = par.worldToLocal(targetWorld.clone()).sub(bone.position).normalize();
+        bone.quaternion.setFromUnitVectors(rest, local);
+        bone.updateMatrixWorld(true);
+      };
+
       const board = sign(8, 2.2, 1280, (c, cw, ch) => {
         const A = live.current.arena;
         c.fillStyle = 'rgba(8,15,30,0.94)'; c.fillRect(0, 0, cw, ch);
@@ -902,7 +1093,7 @@ export const World3D: React.FC<Props> = (props) => {
         c.fillStyle = '#94a3b8'; c.font = '36px system-ui, sans-serif';
         c.fillText(A.phase === 'filling' || A.phase === 'confirming' ? 'Bulls and Bears are drawn at random at the lock. Nobody picks a side.' : 'Both teams trade freely. Better average vault gain wins.', cw / 2, ch * 0.86);
       }, 0, 4.2, -d / 2 + 0.3);
-      const rope = sign(9, 1.6, 1280, (c, cw, ch) => {
+      const bar = sign(9, 1.6, 1280, (c, cw, ch) => {
         const A = live.current.arena;
         c.fillStyle = 'rgba(8,15,30,0.94)'; c.fillRect(0, 0, cw, ch);
         const hasScores = !!A && A.bulls !== null && A.bears !== null && A.players.some((p) => p.team !== 0);
@@ -910,9 +1101,8 @@ export const World3D: React.FC<Props> = (props) => {
         c.fillStyle = '#9f1239'; c.fillRect(bx, by, bw, bh);
         let fillW = bw / 2;
         if (hasScores) {
-          const cap = 100;
           const gap = (A!.bulls as number) - (A!.bears as number);
-          fillW = bw * (0.5 + 0.5 * Math.max(-1, Math.min(1, gap / cap)));
+          fillW = bw * (0.5 + 0.5 * Math.max(-1, Math.min(1, gap / 100)));
         }
         c.fillStyle = '#059669'; c.fillRect(bx, by, fillW, bh);
         c.fillStyle = '#f8fafc'; c.fillRect(bx + fillW - 6, by - 12, 12, bh + 24);
@@ -922,32 +1112,105 @@ export const World3D: React.FC<Props> = (props) => {
         c.textAlign = 'center'; c.fillStyle = '#94a3b8'; c.font = '30px system-ui, sans-serif';
         c.fillText(hasScores ? 'Average vault gain per team, read from the chain' : 'The rope moves once the match locks and teams trade', cw / 2, ch * 0.88);
       }, 0, 2.2, -d / 2 + 0.3);
-      let sig = '';
+
+      // who stands where: re-laid out only when the roster, phase or loaded models change
       ticks.push(() => {
         const A = live.current.arena;
-        const n = A ? A.players.length : 0;
-        const next = JSON.stringify([A?.id, A?.phase, A?.size, A?.result, A?.bulls, A?.bears, Math.floor(A?.left ?? 0), A?.players.map((p) => [p.team, p.isMe])]);
+        const next = JSON.stringify([A?.id, A?.phase, A?.size, A?.result, A?.bulls, A?.bears, Math.floor(A?.left ?? 0), A?.players.map((p) => [p.team, p.isMe]), ready]);
         if (next === sig) return;
         sig = next;
-        const total = Math.max(A?.size ?? 0, n);
-        for (let i = 0; i < MAXSEATS; i++) {
-          const pg = pegs[i];
-          const angle = (i / Math.max(1, total)) * Math.PI * 2 + Math.PI / 2;
-          const x = Math.cos(angle) * R;
-          const z = cz + Math.sin(angle) * R;
-          const seat = i < total;
-          const pl = A?.players[i];
-          pg.ring.visible = seat;
-          pg.ring.position.set(x, 0.04, z);
-          pg.body.visible = pg.head.visible = !!pl;
-          pg.body.position.set(x, 0.45, z);
-          pg.head.position.set(x, 1.15, z);
-          if (pl) pg.mat.color.setHex(pl.team === 1 ? 0x10b981 : pl.team === 2 ? 0xf43f5e : 0xcbd5e1);
-          (pg.ring.material as THREE.MeshBasicMaterial).color.setHex(pl?.isMe ? 0xfacc15 : 0x64748b);
-        }
+        const players = A?.players ?? [];
+        const locked = players.some((p) => p.team !== 0);
+        const lists: Record<number, { isMe: boolean }[]> = { 1: [], 2: [] };
+        const waiting: { isMe: boolean }[] = [];
+        players.forEach((p) => (p.team === 1 ? lists[1].push(p) : p.team === 2 ? lists[2].push(p) : waiting.push(p)));
+        const total = Math.max(A?.size ?? 0, players.length);
+
+        [bulls, bears].forEach((pool, pi) => {
+          const roster = lists[pi + 1];
+          pool.forEach((pu, i) => {
+            const pl = roster[i];
+            pu.on = !!pl;
+            pu.holder.visible = pu.on;
+            pu.ring.visible = pu.on;
+            if (!pl) return;
+            pu.holder.position.set(pu.x, 0, pu.z);
+            pu.ring.position.set(pu.x, 0.04, pu.z);
+            (pu.ring.material as THREE.MeshBasicMaterial).color.setHex(pl.isMe ? 0xfacc15 : pi === 0 ? 0x10b981 : 0xf43f5e);
+            const t = pu.sx < 0 ? 1 : 2;
+            const base = tpl[t];
+            if (!pu.model && base) {
+              const m = cloneSkinned(base);
+              pu.holder.add(m);
+              pu.model = m;
+              pu.rig = makeRig(m);
+              pu.peg.visible = !pu.rig;
+              if (pu.rig) m.visible = true;
+              else { pu.holder.remove(m); pu.model = null; }
+            }
+            pu.peg.visible = !pu.rig;
+            pu.pegMat.color.setHex(pi === 0 ? 0x10b981 : 0xf43f5e);
+            // face the rope, each row turned a little toward it
+            pu.holder.rotation.y = (pu.sx < 0 ? Math.PI / 2 : -Math.PI / 2) - pu.sx * 0.3 * Math.sign(pu.z);
+          });
+        });
+        // the neutral lobby line (before the lock) or the empty seats
+        lobby.forEach((lb, i) => {
+          const x = (i - (total - 1) / 2) * 1.2;
+          const pl = !locked ? waiting[i] : undefined;
+          lb.g.position.set(x, 0, 4.2);
+          lb.g.visible = !!pl;
+          lb.ring.visible = !locked && i < total;
+          lb.ring.position.set(x, 0.04, 4.2);
+          lb.mat.color.setHex(0xcbd5e1);
+          (lb.ring.material as THREE.MeshBasicMaterial).color.setHex(pl?.isMe ? 0xfacc15 : 0x64748b);
+        });
         board.redraw();
-        rope.redraw();
+        bar.redraw();
       });
+
+      // every frame: the rope slides with the score, sags, and the arms reach its real position
+      let ropeOffset = 0;
+      const tmp = new THREE.Vector3();
+      frames.push((t, dt) => {
+        const A = live.current.arena;
+        const hasScores = !!A && A.bulls !== null && A.bears !== null && A.players.some((p) => p.team !== 0);
+        const gap = hasScores ? (A!.bulls as number) - (A!.bears as number) : 0;
+        const bias = Math.max(-1, Math.min(1, gap / 100)); // +1 Bulls, -1 Bears
+        ropeOffset += (-bias * 3 - ropeOffset) * Math.min(1, dt * 1.6);
+        team.position.x = ropeOffset;
+        const trading = A?.phase === 'trading';
+        const intensity = trading ? 0.4 + Math.abs(bias) * 0.6 : A?.phase === 'filling' ? 0.15 : 0.1;
+        sagA = 0.012 + 0.05 * (1 - Math.min(1, intensity));
+        if (ropeBones) {
+          ropeBones.l.forEach((b) => { b.rotation.z = -sagA; });
+          ropeBones.r.forEach((b) => { b.rotation.z = sagA; });
+        }
+        team.updateMatrixWorld(true);
+        [bulls, bears].forEach((pool) =>
+          pool.forEach((pu) => {
+            if (!pu.on || !pu.rig) return;
+            const rg = pu.rig;
+            const lean = 0.1 + 0.16 * intensity + Math.sin(t * 5 + pu.phase) * 0.05 * intensity;
+            rg.spine.rotation.x = -lean * 0.5;
+            rg.chest.rotation.x = -lean * 0.5;
+            pu.holder.position.y = Math.abs(Math.sin(t * 5 + pu.phase)) * 0.025 * intensity;
+            pu.holder.updateMatrixWorld(true);
+            const reach = (up: THREE.Object3D, restUp: THREE.Vector3, fore: THREE.Object3D, restFore: THREE.Vector3, forward: number) => {
+              const gx = pu.x - pu.sx * forward;
+              const grip = new THREE.Vector3(gx, ropeYAt(gx) + Math.sin(t * 6 + pu.phase) * 0.02 * intensity, 0);
+              team.localToWorld(grip);
+              tmp.set(pu.x + pu.sx * 0.25, ropeYAt(gx) - 0.25, Math.sign(pu.z) * 0.25);
+              team.localToWorld(tmp);
+              aim(up, restUp, tmp);
+              aim(fore, restFore, grip);
+            };
+            reach(rg.upL, rg.restUpL, rg.foreL, rg.restForeL, 0.2);
+            reach(rg.upR, rg.restUpR, rg.foreR, rg.restForeR, 0.55);
+          }),
+        );
+      });
+
       exitPortal(-w / 2 + 2, d / 2 - 2, 'Leave to the market room', () => live.current.onBackToLobby());
       pos.set(0, d / 2 - 3);
       facing = Math.PI;
