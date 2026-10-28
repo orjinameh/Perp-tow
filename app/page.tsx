@@ -363,18 +363,6 @@ export default function TugOfWarApp() {
               >
                 Back to the room
               </button>
-              {screen === 'matches' && (
-                <MatchesListScreen
-                  market={selectedAsset}
-                  selectedSide={selectedSide}
-                  matches={currentMatches}
-                  loading={!matchState.loaded}
-                  error={matchState.error}
-                  onSelectMatch={handleSelectMatch}
-                  onOpenNewMatch={handleOpenNewMatch}
-                  onBackToChart={() => setScreen('chart')}
-                />
-              )}
               {screen === 'inspect' && selectedMatch && (
                 <MatchInspectScreen
                   market={selectedAsset}
@@ -385,18 +373,7 @@ export default function TugOfWarApp() {
                   onOpenSpecs={() => setIsSpecsOpen(true)}
                 />
               )}
-              {screen === 'entry' && selectedMatch && (
-                <EntryConfirmScreen
-                  market={selectedAsset}
-                  selectedSide={selectedSide}
-                  match={selectedMatch}
-                  wallet={wallet}
-                  pool={currentMarket?.pool ?? ''}
-                  maxLeverage={currentMarket?.maxLeverage}
-                  onEntered={handleEntered}
-                  onBackToInspect={() => setScreen('matches')}
-                />
-              )}
+              
             </div>
           )}
         </div>
