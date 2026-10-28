@@ -19,6 +19,15 @@ export const WalletPanel: React.FC<{ wallet: GameWallet }> = ({ wallet }) => {
   const [closeTicker, setCloseTicker] = useState('BTC');
   const [mainOpen, setMainOpen] = useState(false);
   const [mainText, setMainText] = useState('');
+  const [keyShown, setKeyShown] = useState(false);
+  const [keyCopied, setKeyCopied] = useState(false);
+  const [sendOpen, setSendOpen] = useState(false);
+  const [sendTok, setSendTok] = useState<'STT' | 'USDso'>('USDso');
+  const [sendTo, setSendTo] = useState('');
+  const [sendAmt, setSendAmt] = useState('');
+  const [sendErr, setSendErr] = useState<string | null>(null);
+  const [sendDone, setSendDone] = useState<string | null>(null);
+  const [sending, setSending] = useState(false);
 
   const refreshBalance = useCallback(async () => {
     if (!wallet.address) return;
@@ -59,13 +68,14 @@ export const WalletPanel: React.FC<{ wallet: GameWallet }> = ({ wallet }) => {
     }
   };
 
+  const [amount, setAmount] = useState('');
   const deposit = async () => {
     if (!wallet.key || !wallet.address) return;
     setBusy(true);
     setStatus(null);
     try {
       const t = await loadTrading();
-      setStatus(await t.depositAllToMargin(wallet.key, wallet.address));
+      setStatus(await t.depositAllToMargin(wallet.key, wallet.address, amount.trim() ? Number(amount) : undefined));
       refreshBalance();
     } catch (e) {
       setStatus(`Deposit failed: ${e instanceof Error ? e.message.slice(0, 700) : String(e)}`);
@@ -102,6 +112,28 @@ export const WalletPanel: React.FC<{ wallet: GameWallet }> = ({ wallet }) => {
     } finally {
       setBusy(false);
     }
+  };
+
+  const doSend = async () => {
+    if (!wallet.key) return;
+    setSendErr(null);
+    setSendDone(null);
+    setSending(true);
+    try {
+      const t = await import('@/lib/transfer');
+      const hash = await t.sendFunds(wallet.key, sendTok, sendTo, sendAmt);
+      setSendDone(`Sent ${sendAmt} ${sendTok}. Transaction ${hash.slice(0, 10)}…${hash.slice(-6)}`);
+      setSendAmt('');
+      refreshBalance();
+    } catch (e) {
+      setSendErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSending(false);
+    }
+  };
+  const copyKey = () => {
+    if (!wallet.key) return;
+    navigator.clipboard?.writeText(wallet.key).then(() => { setKeyCopied(true); setTimeout(() => setKeyCopied(false), 1500); }).catch(() => setStatus('Could not copy automatically. Select the key text and copy it by hand.'));
   };
 
   const doImport = () => {
@@ -167,6 +199,7 @@ export const WalletPanel: React.FC<{ wallet: GameWallet }> = ({ wallet }) => {
             </span>
             {!wallet.linked && (
               <>
+                <input className="w-20 rounded border border-zinc-700 bg-transparent px-2 py-1 text-xs" placeholder="all" inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value.replace(/[^0-9.]/g, ''))} aria-label="Amount to deposit in USDso, empty for all" />
                 <button className={btn} onClick={deposit} disabled={busy}>
                   {busy ? <span className="inline-flex items-center gap-1.5"><Spinner className="h-3 w-3" />Working…</span> : 'Deposit USDso to margin'}
                 </button>
@@ -186,6 +219,8 @@ export const WalletPanel: React.FC<{ wallet: GameWallet }> = ({ wallet }) => {
             </span>
             {!wallet.linked && <button className={btn} onClick={withdraw} disabled={busy}>Withdraw margin to wallet</button>}
             <button className={btn} onClick={refreshBalance}>Refresh</button>
+            <button className={btn} onClick={() => { setSendOpen((o) => !o); setSendErr(null); setSendDone(null); }}>Send funds</button>
+            <button className={btn} onClick={() => setKeyShown((o) => !o)}>{keyShown ? 'Hide my key' : 'Back up my key'}</button>
             {wallet.linked ? (
               <button className="text-zinc-500 hover:text-amber-300 underline underline-offset-2" onClick={wallet.unlinkMain}>
                 Stop trading for my main wallet
@@ -201,6 +236,44 @@ export const WalletPanel: React.FC<{ wallet: GameWallet }> = ({ wallet }) => {
             >
               Forget wallet
             </button>
+          </div>
+        )}
+
+        {keyShown && wallet.key && (
+          <div className="space-y-2 rounded-xl border border-amber-500/40 bg-amber-950/30 p-3">
+            <div className="font-semibold text-amber-200">Your game wallet key (testnet only)</div>
+            <p className="text-zinc-400">Anyone with this key controls this wallet and everything in it. Do not share it or post it. Paste it into &quot;Import a testnet key&quot; on another browser or site to use the same wallet there.</p>
+            <div className="break-all rounded bg-zinc-950 p-2 font-mono text-zinc-100 select-all">{wallet.key}</div>
+            <button className={btn} onClick={copyKey}>{keyCopied ? 'Copied!' : 'Copy key'}</button>
+          </div>
+        )}
+
+        {sendOpen && wallet.key && (
+          <div className="space-y-2 rounded-xl border border-zinc-800 bg-zinc-900/60 p-3">
+            <div className="font-semibold text-zinc-100">Send from this game wallet</div>
+            <div className="flex flex-wrap items-center gap-2">
+              <select className="rounded-lg border border-zinc-800 bg-zinc-900 px-2 py-1.5 text-xs text-white" value={sendTok} onChange={(e) => setSendTok(e.target.value as 'STT' | 'USDso')}>
+                <option value="USDso">USDso</option>
+                <option value="STT">STT</option>
+              </select>
+              <input
+                value={sendTo}
+                onChange={(e) => setSendTo(e.target.value)}
+                placeholder="To address 0x..."
+                className="w-full sm:w-96 rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-1.5 text-xs text-white placeholder-zinc-600 focus:border-emerald-500 focus:outline-none"
+              />
+              <input
+                value={sendAmt}
+                onChange={(e) => setSendAmt(e.target.value.replace(/[^0-9.]/g, ''))}
+                inputMode="decimal"
+                placeholder="Amount"
+                className="w-28 rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-1.5 text-xs text-white placeholder-zinc-600 focus:border-emerald-500 focus:outline-none"
+              />
+              <button className={btn} onClick={doSend} disabled={sending}>{sending ? <span className="inline-flex items-center gap-1.5"><Spinner className="h-3 w-3" />Sending…</span> : 'Send'}</button>
+            </div>
+            <p className="text-zinc-500">Pays gas in STT from this wallet. Money in your dreamDEX margin or in a match vault is not here; withdraw or claim it first.</p>
+            {sendErr && <div className="text-rose-300">{sendErr}</div>}
+            {sendDone && <div className="text-emerald-300">{sendDone}</div>}
           </div>
         )}
 
