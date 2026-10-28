@@ -13,6 +13,7 @@ import { vaultOrder, vaultClose, vaultPosition } from '@/lib/trading';
 import { nowSec } from '@/lib/clock';
 import type { GameMatch } from '@/lib/types';
 import { Modal, btnGhost, btnPrimary } from '@/components/Modal';
+import { BotPanel } from '@/components/BotPanel';
 import type { SquadArenaView, WorldRoom } from '@/components/World3D';
 
 const Hall = dynamic(() => import('@/components/SquadsHall3D').then((m) => m.SquadsHall3D), { ssr: false, loading: () => <div className="h-[420px] flex items-center justify-center text-sm opacity-70">Building the hall…</div> });
@@ -222,6 +223,17 @@ export function SquadsGame({ wallet, live }: { wallet: GameWallet; live: LiveMar
                 <button className="border rounded px-3 py-1" onClick={close} disabled={!vault || !position}>Close position</button>
               </div>
               <p className="text-xs opacity-70 mt-2">Trade as often as you like in either direction. Your score is how much your vault's equity changed since the lock, open positions included. Nothing outside the match can change it.</p>
+              <BotPanel
+                active={match.phase === 'trading'}
+                price={market ? market.price : null}
+                position={position}
+                secondsLeft={Math.max(0, match.endsAt - now)}
+                team={mine.team === 1 ? 'bulls' : mine.team === 2 ? 'bears' : null}
+                bankroll={params?.bankrollUsd ?? 50}
+                canTrade={!!vault && !!key}
+                onOrder={(sd, usd) => vaultOrder(key as Hex, vault as Hex, ticker, sd, usd, match.number)}
+                onClose={() => vaultClose(key as Hex, vault as Hex, ticker)}
+              />
             </div>
           )}
 
