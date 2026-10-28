@@ -283,6 +283,7 @@ export function SquadsGame({ wallet, live }: { wallet: GameWallet; live: LiveMar
         onOpenNew={openRoomModal}
         onConfirmSeat={() => { if (ticket && ticket !== 'new') void join(ticket); }}
         onCloseTicket={() => setTicket(null)}
+        onModelFail={(what) => setLiveWarn(`Could not load the 3D model for ${what}, so plain stand-ins are shown. The game still works; reload to try again.`)}
         onBackToLobby={() => { setTicket(null); if (room.kind === 'arena') setRoom({ kind: 'market', ticker }); else setRoom({ kind: 'hub' }); }}
         onResume={() => {}}
         onFail={() => setView('screens')}

@@ -28,6 +28,7 @@ interface Props {
   onEnterMarket: (ticker: string) => void;
   onPickSide: (side: PositionSide) => void;
   onBackToLobby: () => void;
+  onModelFail?: (what: string) => void; // a 3D model could not be loaded: the arena shows plain stand-ins instead
   onResume: () => void;
   onFail: (message: string) => void;
   // The match wall (east) and entry ticket (west) of the market room
@@ -946,7 +947,7 @@ export const World3D: React.FC<Props> = (props) => {
           plainFlag.visible = false;
           ready.rope = true;
         })
-        .catch(() => undefined);
+        .catch(() => live.current.onModelFail?.('the rope'));
       const loadTeam = (name: 'bull' | 'bear', t: 1 | 2) =>
         loadModel(name)
           .then((g) => {
@@ -968,7 +969,7 @@ export const World3D: React.FC<Props> = (props) => {
             ready[name] = true;
             sig = '';
           })
-          .catch(() => undefined);
+          .catch(() => live.current.onModelFail?.(name === 'bull' ? 'the bull' : 'the bear'));
       loadTeam('bull', 1);
       loadTeam('bear', 2);
 
