@@ -296,7 +296,7 @@ export async function enterMatch(args: {
         quantity,
         orderType: ORDER_TYPE_MARKET,
         userData,
-      }))) as unknown as { hash?: string; orderId?: bigint; receipt?: { status?: string }; fills?: { quantityFilled: bigint }[] };
+      } as never))) as unknown as { hash?: string; orderId?: bigint; receipt?: { status?: string }; fills?: { quantityFilled: bigint }[] };
 
   if (res.receipt?.status && res.receipt.status !== 'success') throw new Error('The order transaction reverted on chain.');
   const filled = (res.fills ?? []).reduce((s, f) => s + f.quantityFilled, 0n);
