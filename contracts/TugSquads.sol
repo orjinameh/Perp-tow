@@ -100,8 +100,10 @@ interface IOperatorPermissions {
 /// Perp Tug of War, squads version. One contract holds the seats AND the stakes.
 ///
 ///  1. A player takes a seat and stakes in the same transaction (`enter`). Leaving an open lobby refunds it.
-///  2. When the lobby is full, or its timer ended and enough players said "continue", the match LOCKS and the
-///     teams are drawn at random: each player is placed by their own random draw, so teams can be uneven. Nobody picks a side.
+///  2. Taking a seat assigns your team at once (Bulls or Bears) from a random draw, so teams can be uneven. Nobody picks a
+///     side, and a player who leaves cannot re-enter that match to reroll. The second seat always lands opposite the first,
+///     so a match with two or more players has both teams. When the lobby is full, or its timer ended and enough
+///     players said "continue", the match LOCKS (and is cancelled and refunded if one team ended up empty).
 ///  3. Players trade freely on dreamDEX for `duration` seconds from the lock. The two teams are scored on those trades.
 ///  4. Anyone can call `settle` once the match is over. The contract reads each player's real dreamDEX account equity
 ///     from the margin bank, once at the lock and once at the end, and the team with the higher average equity
@@ -119,7 +121,7 @@ contract TugSquads {
     struct Match {
         uint64 firstAt;   // block time of the first seat
         uint64 lockAt;    // block time the match locked (0 while open)
-        bytes32 seed;     // randomness of the team draw, set at the lock
+        bytes32 seed;     // randomness recorded at the lock (teams are drawn per seat when the seat is taken)
         uint8 result;     // 0 pending, 1 team Bulls won, 2 team Bears won, 3 refund
         bool cancelled;   // lobby ended without enough players: every stake is refundable
         uint256 rakeOwed;
@@ -145,6 +147,8 @@ contract TugSquads {
     mapping(bytes32 => Match) public matches;
     mapping(bytes32 => Seat[]) private _seats;
     mapping(bytes32 => mapping(address => bool)) public inMatch;
+    mapping(bytes32 => mapping(address => uint8)) public teamSeat;  // team fixed when the seat is taken (1 Bulls, 2 Bears)
+    mapping(bytes32 => mapping(address => bool)) public left;        // gave up a seat: cannot re-enter that match
     mapping(bytes32 => mapping(address => bool)) public claimed;
     mapping(bytes32 => uint256) private _latest; // keccak(market) => highest match number used
     mapping(address => mapping(address => bool)) public botOf;
@@ -237,6 +241,7 @@ contract TugSquads {
         bytes32 key = keccak256(abi.encode(market, number));
         Match storage m = matches[key];
         require(!inMatch[key][player], "already in this match");
+        require(!left[key][player], "you left this match and cannot rejoin it");
         if (m.firstAt == 0) {
             require(wantedSize >= 2 && wantedSize >= minPlayers && wantedSize <= size, "bad match size");
             m.cap = wantedSize;
@@ -246,12 +251,22 @@ contract TugSquads {
         require(m.lockAt == 0 && !m.cancelled && block.timestamp < m.firstAt + lobbySeconds, "lobby is closed");
         inMatch[key][player] = true;
         _seats[key].push(Seat(player, false));
+        _assignTeam(key, player);
         if (number > _latest[mh]) _latest[mh] = number;
         require(token.transferFrom(payer, address(this), stake), "stake transfer");
         _newVault(key, player, payer);
         uint32 seat = uint32(_seats[key].length);
         emit Entered(mh, number, player, seat);
         if (seat == m.cap) _lock(key, mh, number, m.cap); // a full match locks at once
+    }
+
+    /// Random team for a new seat, drawn from the previous block's hash (good enough for a testnet game).
+    /// The second seat always takes the side the first seat did not, so two or more players always make two teams.
+    function _assignTeam(bytes32 key, address player) internal {
+        Seat[] storage s = _seats[key];
+        uint8 t = (uint256(keccak256(abi.encode(blockhash(block.number - 1), key, player, s.length, block.timestamp))) & 1 == 1) ? 1 : 2;
+        if (s.length == 2 && teamSeat[key][s[0].player] == t) t = (t == 1) ? 2 : 1;
+        teamSeat[key][player] = t;
     }
 
     /// The player's own vault: equal bankroll, controlled by nobody but the arena rules.
@@ -286,6 +301,8 @@ contract TugSquads {
             }
         }
         inMatch[key][player] = false;
+        left[key][player] = true;
+        teamSeat[key][player] = 0;
         require(token.transfer(player, stake), "refund");
         vaultOf[key][player].release(); // the untouched bankroll goes back too
         emit Left(keccak256(bytes(market)), number, player);
@@ -341,6 +358,22 @@ contract TugSquads {
 
     function _lock(bytes32 key, bytes32 mh, uint256 number, uint32 players) internal {
         Match storage m = matches[key];
+        // both teams must have a player (a leaver can empty one side): otherwise the match is cancelled and refunded
+        {
+            Seat[] storage cs = _seats[key];
+            bool allIn = cs.length == m.cap;
+            uint256 b;
+            uint256 r;
+            for (uint256 i = 0; i < cs.length; i++) {
+                if (!allIn && !cs[i].confirmed) continue;
+                if (teamSeat[key][cs[i].player] == 1) b++; else r++;
+            }
+            if (b == 0 || r == 0) {
+                m.cancelled = true;
+                emit Cancelled(mh, number);
+                return;
+            }
+        }
         m.lockAt = uint64(block.timestamp);
         // random draw from the previous block's hash: good enough for a testnet game
         m.seed = keccak256(abi.encode(blockhash(block.number - 1), key, players, block.timestamp));
@@ -356,31 +389,21 @@ contract TugSquads {
 
     // ----------------------------------------------------------------- teams
 
-    /// 0 = not playing (no seat, not confirmed, or not locked yet), 1 = Bulls, 2 = Bears.
-    /// Every playing seat is placed by its own random draw from the match seed, so a match can split 15/5 or 10/10.
-    /// If the draw would put everybody on one side, the player with the lowest draw is moved across so both teams exist.
+    /// 0 = no seat, cancelled, or (after the lock) not playing; 1 = Bulls, 2 = Bears. The team is fixed at the seat.
+    /// Every seat is placed by its own random draw, so a match can split 15/5 or 10/10.
     function teamOf(bytes32 key, address player) public view returns (uint8) {
         Match storage m = matches[key];
-        if (m.lockAt == 0 || m.cancelled || !inMatch[key][player]) return 0;
-        Seat[] storage s = _seats[key];
-        bool full = s.length == m.cap;
-        uint256 n;
-        uint256 bullsN;
-        bool playing;
-        address lowest;
-        bytes32 lowestHash = bytes32(type(uint256).max);
-        for (uint256 i = 0; i < s.length; i++) {
-            if (!full && !s[i].confirmed) continue;
-            n++;
-            bytes32 h = keccak256(abi.encode(m.seed, s[i].player));
-            if (uint256(h) & 1 == 1) bullsN++;
-            if (h < lowestHash) { lowestHash = h; lowest = s[i].player; }
-            if (s[i].player == player) playing = true;
+        if (m.cancelled || !inMatch[key][player]) return 0;
+        if (m.lockAt != 0) {
+            Seat[] storage s = _seats[key];
+            if (s.length != m.cap) {
+                // a lobby locked by "continue": only the players who confirmed play
+                bool ok;
+                for (uint256 i = 0; i < s.length; i++) if (s[i].player == player) ok = s[i].confirmed;
+                if (!ok) return 0;
+            }
         }
-        if (!playing) return 0;
-        uint8 t = (uint256(keccak256(abi.encode(m.seed, player))) & 1 == 1) ? 1 : 2;
-        if (n >= 2 && (bullsN == 0 || bullsN == n) && player == lowest) t = (t == 1) ? 2 : 1;
-        return t;
+        return teamSeat[key][player];
     }
 
     function teamSizes(bytes32 key) public view returns (uint32 bulls, uint32 bears) {

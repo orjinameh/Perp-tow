@@ -172,9 +172,9 @@ export function SquadsGame({ wallet, live }: { wallet: GameWallet; live: LiveMar
           <h2 className="font-semibold">{match.id} · {match.phase}{left > 0 && ` · ${mmss(left)}`}</h2>
 
           {(match.phase === 'filling' || match.phase === 'confirming') && (
-            <p className="text-sm opacity-80 my-2">Teams are drawn at random when the match locks. Nobody picks a side, and you can trade any direction once it starts.</p>
+            <p className="text-sm opacity-80 my-2">{mine && mine.team ? `You are on team ${TEAM_NAME[mine.team]}, drawn at random when you took your seat. ` : ''}Nobody picks a side, and you can trade any direction once it starts.</p>
           )}
-          {match.lockAt > 0 && <p className="text-sm my-2">Teams drawn. Both teams trade freely until the clock ends; the team with the better average equity gain wins.</p>}
+          {match.lockAt > 0 && <p className="text-sm my-2">{mine && mine.team ? `You are a ${TEAM_NAME[mine.team].replace(/s$/, '')}. ` : ''}Both teams trade freely until the clock ends; the team with the better average equity gain wins.</p>}
 
           <ul className="grid sm:grid-cols-2 gap-1 text-sm my-3">
             {match.players.map((p) => {
@@ -309,7 +309,7 @@ export function SquadsGame({ wallet, live }: { wallet: GameWallet; live: LiveMar
               aria-invalid={!!sizeError}
             />
           </label>
-          {sizeError ? <p className="text-xs text-rose-400">{sizeError}</p> : <p className="text-xs text-emerald-400">Teams are drawn at random at the lock, so they can be uneven.</p>}
+          {sizeError ? <p className="text-xs text-rose-400">{sizeError}</p> : <p className="text-xs text-emerald-400">Your team is drawn at random the moment you take a seat, so teams can be uneven.</p>}
           <dl className="space-y-1 rounded-lg bg-zinc-950/60 p-3 text-xs text-zinc-300">
             <div className="flex justify-between"><dt>Stake</dt><dd>${(params?.stakeUsd ?? 10).toFixed(2)} USDso</dd></div>
             <div className="flex justify-between"><dt>Your trading bankroll (comes back)</dt><dd>${(params?.bankrollUsd ?? 50).toFixed(2)} USDso</dd></div>
@@ -364,7 +364,7 @@ export function SquadsGame({ wallet, live }: { wallet: GameWallet; live: LiveMar
                 <div className="flex justify-between"><dt className="opacity-70">Trading bankroll</dt><dd>${(params?.bankrollUsd ?? 50).toFixed(2)} in your own vault, returned to you</dd></div>
                 <div className="flex justify-between"><dt className="opacity-70">Pool at a full room</dt><dd>${(stakeUsd * size).toFixed(2)}</dd></div>
                 <div className="flex justify-between items-center"><dt className="opacity-70">Seats</dt><dd>{seated} / {size} taken</dd></div>
-                <div className="flex justify-between"><dt className="opacity-70">Your team</dt><dd>Drawn at random at the lock</dd></div>
+                <div className="flex justify-between"><dt className="opacity-70">Your team</dt><dd>Drawn at random when you take the seat</dd></div>
                 <div className="flex justify-between"><dt className="opacity-70">Winner</dt><dd>Team with the bigger average vault gain</dd></div>
                 <div className="flex justify-between"><dt className="opacity-70">Payout</dt><dd>Stake back + {Math.round((1 - (params?.rake ?? 0.2)) * 100)}% of the losers' pool</dd></div>
               </dl>

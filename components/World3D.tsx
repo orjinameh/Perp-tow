@@ -473,7 +473,7 @@ export const World3D: React.FC<Props> = (props) => {
         c.fillText(`${ticker} ACTIVE MATCHES`, cw / 2, ch * 0.36);
         c.font = '34px system-ui, sans-serif';
         c.fillStyle = sq || L.side ? (sq || L.side === 'bulls' ? '#34d399' : '#fb7185') : '#fbbf24';
-        c.fillText(sq ? 'Step on a pad to join. Teams are drawn at random at the lock.' : L.side ? `Your pick: ${L.side === 'bulls' ? 'BULLS (LONG)' : 'BEARS (SHORT)'}. Step on a pad to join.` : 'First pick Bulls or Bears on the pads below.', cw / 2, ch * 0.76);
+        c.fillText(sq ? 'Step on a pad to join. Your team is drawn when you sit.' : L.side ? `Your pick: ${L.side === 'bulls' ? 'BULLS (LONG)' : 'BEARS (SHORT)'}. Step on a pad to join.` : 'First pick Bulls or Bears on the pads below.', cw / 2, ch * 0.76);
       }, wallX, 3.7, -1);
       faceRoom(head.mesh, -Math.PI / 2);
       const rows: Panel[] = [];
@@ -493,7 +493,7 @@ export const World3D: React.FC<Props> = (props) => {
           const left = m.lobbyEndsAt ? Math.max(0, m.lobbyEndsAt - nowSec()) : 0;
           c.fillStyle = '#f8fafc'; c.font = 'bold 56px system-ui, sans-serif'; c.fillText(m.id, 32, ch * 0.32);
           c.fillStyle = '#34d399'; c.font = 'bold 40px system-ui, sans-serif';
-          c.fillText(sq ? `${m.total}/${m.size ?? MATCH_SIZE} seated · teams at the lock` : `${m.total}/${MATCH_SIZE} seated · ${m.bulls} bulls · ${m.bears} bears`, 32, ch * 0.62);
+          c.fillText(sq ? `${m.total}/${m.size ?? MATCH_SIZE} seated · random teams` : `${m.total}/${MATCH_SIZE} seated · ${m.bulls} bulls · ${m.bears} bears`, 32, ch * 0.62);
           c.fillStyle = '#94a3b8'; c.font = '32px system-ui, sans-serif';
           c.fillText(mine ? 'You are seated: step here to return' : `Lobby ${clock(left)} left · $${NOMINAL_STAKE_USD} stake`, 32, ch * 0.86);
         }, wallX, 1.7, z);
@@ -539,7 +539,7 @@ export const World3D: React.FC<Props> = (props) => {
           c.fillStyle = vc; c.font = 'bold 40px system-ui, sans-serif'; c.textAlign = 'right'; c.fillText(v, cw - 48, ch * y); c.textAlign = 'left';
         };
         c.fillStyle = '#f8fafc'; c.font = 'bold 84px system-ui, sans-serif'; c.fillText(m.id, 48, ch * 0.2);
-        if (sq) line(0.33, 'Your team', 'Drawn at random at the lock', '#fbbf24');
+        if (sq) line(0.33, 'Your team', 'Drawn when you take the seat', '#fbbf24');
         else line(0.33, 'Your team', L.side === 'bulls' ? 'BULLS (LONG)' : 'BEARS (SHORT)', L.side === 'bulls' ? '#34d399' : '#fb7185');
         line(0.43, 'Market', `${ticker} / USD, isolated`);
         line(0.53, 'Stake', `$${NOMINAL_STAKE_USD}.00`);
@@ -1091,12 +1091,12 @@ export const World3D: React.FC<Props> = (props) => {
         c.fillStyle = A.phase === 'trading' ? '#34d399' : A.phase === 'settled' ? (A.result === 1 ? '#34d399' : A.result === 2 ? '#fb7185' : '#fbbf24') : '#fbbf24';
         c.font = 'bold 60px system-ui, sans-serif'; c.fillText(text[A.phase] ?? A.phase, cw / 2, ch * 0.62);
         c.fillStyle = '#94a3b8'; c.font = '36px system-ui, sans-serif';
-        c.fillText(A.phase === 'filling' || A.phase === 'confirming' ? 'Bulls and Bears are drawn at random at the lock. Nobody picks a side.' : 'Both teams trade freely. Better average vault gain wins.', cw / 2, ch * 0.86);
+        c.fillText(A.phase === 'filling' || A.phase === 'confirming' ? 'Your team is drawn at random the moment you sit. Nobody picks a side.' : 'Both teams trade freely. Better average vault gain wins.', cw / 2, ch * 0.86);
       }, 0, 4.2, -d / 2 + 0.3);
       const bar = sign(9, 1.6, 1280, (c, cw, ch) => {
         const A = live.current.arena;
         c.fillStyle = 'rgba(8,15,30,0.94)'; c.fillRect(0, 0, cw, ch);
-        const hasScores = !!A && A.bulls !== null && A.bears !== null && A.players.some((p) => p.team !== 0);
+        const hasScores = !!A && A.bulls !== null && A.bears !== null && (A.phase === 'trading' || A.phase === 'ended' || A.phase === 'settled');
         const bx = 60, bw = cw - 120, by = ch * 0.5, bh = 36;
         c.fillStyle = '#9f1239'; c.fillRect(bx, by, bw, bh);
         let fillW = bw / 2;
@@ -1174,7 +1174,7 @@ export const World3D: React.FC<Props> = (props) => {
       const tmp = new THREE.Vector3();
       frames.push((t, dt) => {
         const A = live.current.arena;
-        const hasScores = !!A && A.bulls !== null && A.bears !== null && A.players.some((p) => p.team !== 0);
+        const hasScores = !!A && A.bulls !== null && A.bears !== null && (A.phase === 'trading' || A.phase === 'ended' || A.phase === 'settled');
         const gap = hasScores ? (A!.bulls as number) - (A!.bears as number) : 0;
         const bias = Math.max(-1, Math.min(1, gap / 100)); // +1 Bulls, -1 Bears
         ropeOffset += (-bias * 3 - ropeOffset) * Math.min(1, dt * 1.6);
