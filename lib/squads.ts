@@ -146,6 +146,7 @@ function friendly(e: unknown): Error {
   if (/lobby is closed/i.test(text)) return new Error('This lobby has closed. Open or join a newer match.');
   if (/bad match size/i.test(text)) return new Error('That match size is not allowed. Pick between 2 and the maximum.');
   if (/match is full/i.test(text)) return new Error('This match is already full. Open a new match.');
+  if (/cannot rejoin|you left this match/i.test(text)) return new Error('You left this match, so you cannot take a seat in it again. Join or open a different match.');
   if (/already in/i.test(text)) return new Error('This wallet already has a seat in this match.');
   if (/match number too high/i.test(text)) return new Error('That match number is not next in line. Reload and try again.');
   if (/lobby still open/i.test(text)) return new Error('The lobby is still open on the chain. Wait a few seconds and try again.');

@@ -33,6 +33,7 @@ export function SquadsGame({ wallet, live }: { wallet: GameWallet; live: LiveMar
   const [chain, setChain] = useState<{ bulls: number; bears: number } | null>(null);
   const [claimed, setClaimed] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [liveWarn, setLiveWarn] = useState<string | null>(null); // background reads that keep failing
   const [now, setNow] = useState(0);
   const [side, setSide] = useState<'bulls' | 'bears'>('bulls');
   const [positionUsd, setPositionUsd] = useState(50);
@@ -70,7 +71,7 @@ export function SquadsGame({ wallet, live }: { wallet: GameWallet; live: LiveMar
   useEffect(() => {
     if (!match || !match.lockAt) { setChain(null); return; }
     let stop = false;
-    const go = () => squadScores(ticker, match.number).then((v) => { if (!stop) setChain(v); }).catch(() => {});
+    const go = () => squadScores(ticker, match.number).then((v) => { if (!stop) { setChain(v); setLiveWarn(null); } }).catch(() => { if (!stop) setLiveWarn('Live scores are not updating right now (the chain connection is slow). Trying again.'); });
     void go();
     const t = setInterval(go, 6000);
     return () => { stop = true; clearInterval(t); };
@@ -78,7 +79,7 @@ export function SquadsGame({ wallet, live }: { wallet: GameWallet; live: LiveMar
 
   useEffect(() => {
     setClaimed(false);
-    if (match && me && match.phase !== 'filling') squadClaimed(ticker, match.number, me).then(setClaimed).catch(() => {});
+    if (match && me && match.phase !== 'filling') squadClaimed(ticker, match.number, me).then(setClaimed).catch(() => setLiveWarn('Could not check whether you already claimed. Reload before claiming.'));
   }, [match?.number, match?.phase, me, ticker]);
 
   // My own vault for this match, and the position it holds.
@@ -86,13 +87,13 @@ export function SquadsGame({ wallet, live }: { wallet: GameWallet; live: LiveMar
     setVault(null); setPosition(null);
     if (!match || !me || !mine) return;
     let stop = false;
-    vaultAddress(ticker, match.number, me).then((v) => { if (!stop) setVault(v); }).catch(() => {});
+    vaultAddress(ticker, match.number, me).then((v) => { if (!stop) setVault(v); }).catch(() => { if (!stop) setLiveWarn('Could not find your vault yet, so trading is paused. Trying again.'); });
     return () => { stop = true; };
   }, [match?.number, !!mine, me, ticker]);
   useEffect(() => {
     if (!vault || !match || match.phase === 'filling' || match.phase === 'confirming') return;
     let stop = false;
-    const go = () => vaultPosition(vault, ticker).then((p) => { if (!stop) setPosition(p); }).catch(() => {});
+    const go = () => vaultPosition(vault, ticker).then((p) => { if (!stop) { setPosition(p); setLiveWarn(null); } }).catch(() => { if (!stop) setLiveWarn('Your open position is not updating right now. The numbers shown may be out of date.'); });
     void go();
     const t = setInterval(go, 6000);
     return () => { stop = true; clearInterval(t); };
@@ -175,6 +176,7 @@ export function SquadsGame({ wallet, live }: { wallet: GameWallet; live: LiveMar
           {(match.phase === 'filling' || match.phase === 'confirming') && (
             <p className="text-sm opacity-80 my-2">{mine && mine.team ? `You are on team ${TEAM_NAME[mine.team]}, drawn at random when you took your seat. ` : ''}Nobody picks a side, and you can trade any direction once it starts.</p>
           )}
+          {match.phase === 'cancelled' && <p className="text-sm my-2 text-amber-500">This match was cancelled: not enough players continued, or one team ended up with nobody. Nothing was played, and every stake and bankroll can be claimed back.</p>}
           {match.lockAt > 0 && <p className="text-sm my-2">{mine && mine.team ? `You are a ${TEAM_NAME[mine.team].replace(/s$/, '')}. ` : ''}Both teams trade freely until the clock ends; the team with the better average equity gain wins.</p>}
 
           <ul className="grid sm:grid-cols-2 gap-1 text-sm my-3">
@@ -288,6 +290,7 @@ export function SquadsGame({ wallet, live }: { wallet: GameWallet; live: LiveMar
       {room.kind === 'arena' && panel && (
         <div className="absolute left-3 top-3 z-10 w-[min(92vw,26rem)] max-h-[85%] overflow-y-auto rounded-xl border border-zinc-700 bg-zinc-950/90 text-zinc-100 p-2 text-sm">{panel}</div>
       )}
+      {!error && liveWarn && <div className="absolute inset-x-3 bottom-3 z-10 rounded-xl border border-amber-500/40 bg-amber-950/80 px-3 py-2 text-xs text-amber-200">{liveWarn}</div>}
       {error && <div className="absolute inset-x-3 bottom-3 z-10 rounded-xl border border-rose-500/40 bg-rose-950/80 px-3 py-2 text-xs text-rose-200">{error}</div>}
       {!wallet.ready ? null : !key && (
         <div className="absolute inset-x-3 top-12 z-10 rounded-xl border border-amber-500/40 bg-amber-950/80 px-3 py-2 text-xs text-amber-200">No game wallet yet. Create one in the wallet panel above to take a seat.</div>
@@ -390,6 +393,7 @@ export function SquadsGame({ wallet, live }: { wallet: GameWallet; live: LiveMar
         );
       })()}
       {error && <p className="text-red-500 text-sm mb-3">{error}</p>}
+      {!error && liveWarn && <p className="text-amber-500 text-sm mb-3">{liveWarn}</p>}
       <div className="grid md:grid-cols-[1fr_320px] gap-6">
         <div>
           <h2 className="font-semibold mb-2">Matches</h2>
