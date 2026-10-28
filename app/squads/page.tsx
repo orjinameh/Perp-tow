@@ -335,10 +335,14 @@ export default function SquadsPage() {
 
 function Shell({ children }: { children: React.ReactNode }) {
   return (
-    <main className="max-w-5xl mx-auto p-4">
-      <h1 className="text-2xl font-bold mb-1">Tug of War: Squads</h1>
-      <p className="text-sm opacity-70 mb-4">Random teams, free trading, real dreamDEX positions. The team whose accounts gain more wins, verified on chain.</p>
-      {children}
-    </main>
+    <div className="min-h-screen bg-zinc-950 text-zinc-100 font-sans [&_button]:border-zinc-700 [&_button:hover]:bg-zinc-800 [&_select]:border-zinc-700 [&_section]:border-zinc-800 [&_li]:border-zinc-800">
+      <header className="border-b border-zinc-800 bg-zinc-900/60 px-4 py-3">
+        <div className="mx-auto flex max-w-6xl items-center justify-between">
+          <h1 className="text-lg font-black tracking-tight">Perp Tug of War <span className="ml-2 text-xs font-semibold text-emerald-400">SQUADS</span></h1>
+          <p className="hidden text-xs text-zinc-400 sm:block">Random teams · free trading · real dreamDEX positions</p>
+        </div>
+      </header>
+      <main className="mx-auto max-w-6xl p-4">{children}</main>
+    </div>
   );
 }
