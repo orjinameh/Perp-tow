@@ -978,6 +978,8 @@ export const World3D: React.FC<Props> = (props) => {
         chest: THREE.Object3D;
         upL: THREE.Object3D; foreL: THREE.Object3D;
         upR: THREE.Object3D; foreR: THREE.Object3D;
+        hips: THREE.Object3D; hipsY: number; thigh: number;
+        upLegL: THREE.Object3D; legL: THREE.Object3D; upLegR: THREE.Object3D; legR: THREE.Object3D;
         restUpL: THREE.Vector3; restForeL: THREE.Vector3;
         restUpR: THREE.Vector3; restForeR: THREE.Vector3;
       }
@@ -986,9 +988,11 @@ export const World3D: React.FC<Props> = (props) => {
         const spine = g('Spine'), chest = g('Chest');
         const upL = g('LeftArm'), foreL = g('LeftForeArm'), handL = g('LeftHand');
         const upR = g('RightArm'), foreR = g('RightForeArm'), handR = g('RightHand');
-        if (!spine || !chest || !upL || !foreL || !handL || !upR || !foreR || !handR) return null;
+        const hips = g('Hips'), upLegL = g('LeftUpLeg'), legL = g('LeftLeg'), upLegR = g('RightUpLeg'), legR = g('RightLeg');
+        if (!spine || !chest || !upL || !foreL || !handL || !upR || !foreR || !handR || !hips || !upLegL || !legL || !upLegR || !legR) return null;
         return {
           spine, chest, upL, foreL, upR, foreR,
+          hips, hipsY: hips.position.y, thigh: legL.position.length(), upLegL, legL, upLegR, legR,
           restUpL: foreL.position.clone().normalize(), restForeL: handL.position.clone().normalize(),
           restUpR: foreR.position.clone().normalize(), restForeR: handR.position.clone().normalize(),
         };
@@ -1002,6 +1006,7 @@ export const World3D: React.FC<Props> = (props) => {
         model: THREE.Object3D | null;
         rig: Rig | null;
         phase: number;
+        stool: THREE.Mesh;
         sx: number;
         x: number;
         z: number;
@@ -1035,8 +1040,11 @@ export const World3D: React.FC<Props> = (props) => {
           holder.add(peg);
           const ring = ringMesh(0.5, 0.62);
           team.add(ring);
+          const stool = new THREE.Mesh(new THREE.CylinderGeometry(0.34, 0.3, 1, 18), stdMat(0x475569, 0.7));
+          stool.visible = false;
+          holder.add(stool);
           const col = i >> 1;
-          return { holder, ring, peg, pegMat, model: null, rig: null, phase: i * 0.7, sx, x: sx * (1.5 + col * 0.95), z: i % 2 === 0 ? -0.45 : 0.45, on: false };
+          return { holder, ring, peg, pegMat, model: null, rig: null, stool, phase: i * 0.7, sx, x: sx * (1.5 + col * 0.95), z: i % 2 === 0 ? -0.45 : 0.45, on: false };
         });
       const bulls = mkPool(-1);
       const bears = mkPool(1);
@@ -1144,6 +1152,11 @@ export const World3D: React.FC<Props> = (props) => {
               pu.holder.add(m);
               pu.model = m;
               pu.rig = makeRig(m);
+              if (pu.rig) {
+                const top = pu.rig.hipsY - pu.rig.thigh - 0.06; // the seat top sits just under the pelvis when seated
+                pu.stool.scale.y = top;
+                pu.stool.position.y = top / 2;
+              }
               pu.peg.visible = !pu.rig;
               if (pu.rig) m.visible = true;
               else { pu.holder.remove(m); pu.model = null; }
@@ -1180,6 +1193,8 @@ export const World3D: React.FC<Props> = (props) => {
         ropeOffset += (-bias * 3 - ropeOffset) * Math.min(1, dt * 1.6);
         team.position.x = ropeOffset;
         const trading = A?.phase === 'trading';
+        // while the lobby is open the players sit; when the match runs they stand and pull
+        const seatedNow = A?.phase === 'filling' || A?.phase === 'confirming' || A?.phase === 'finishable';
         const intensity = trading ? 0.4 + Math.abs(bias) * 0.6 : A?.phase === 'filling' ? 0.15 : 0.1;
         sagA = 0.012 + 0.05 * (1 - Math.min(1, intensity));
         if (ropeBones) {
@@ -1191,6 +1206,29 @@ export const World3D: React.FC<Props> = (props) => {
           pool.forEach((pu) => {
             if (!pu.on || !pu.rig) return;
             const rg = pu.rig;
+            pu.stool.visible = seatedNow;
+            if (seatedNow) {
+              // thighs forward, shins down, hands resting on the knees
+              rg.hips.position.y = rg.hipsY - rg.thigh;
+              rg.upLegL.rotation.x = -Math.PI / 2; rg.upLegR.rotation.x = -Math.PI / 2;
+              rg.legL.rotation.x = Math.PI / 2; rg.legR.rotation.x = Math.PI / 2;
+              rg.spine.rotation.x = 0; rg.chest.rotation.x = Math.sin(t * 1.3 + pu.phase) * 0.012;
+              pu.holder.position.y = 0;
+              pu.holder.updateMatrixWorld(true);
+              const rest = (up: THREE.Object3D, restUp: THREE.Vector3, fore: THREE.Object3D, restFore: THREE.Vector3, knee: THREE.Object3D) => {
+                const kw = knee.getWorldPosition(new THREE.Vector3());
+                const sw = up.getWorldPosition(new THREE.Vector3());
+                tmp.copy(sw).lerp(kw, 0.6);
+                tmp.y += 0.05;
+                aim(up, restUp, tmp.clone());
+                aim(fore, restFore, kw);
+              };
+              rest(rg.upL, rg.restUpL, rg.foreL, rg.restForeL, rg.legL);
+              rest(rg.upR, rg.restUpR, rg.foreR, rg.restForeR, rg.legR);
+              return;
+            }
+            rg.hips.position.y = rg.hipsY;
+            rg.upLegL.rotation.x = 0; rg.upLegR.rotation.x = 0; rg.legL.rotation.x = 0; rg.legR.rotation.x = 0;
             const lean = 0.1 + 0.16 * intensity + Math.sin(t * 5 + pu.phase) * 0.05 * intensity;
             rg.spine.rotation.x = -lean * 0.5;
             rg.chest.rotation.x = -lean * 0.5;
