@@ -53,6 +53,7 @@ export interface GameMatch {
   bears: number;
   total: number;
   requiredPlayers: number; // always 20
+  size?: number; // seats in this match (squads mode: chosen by the host)
   slotsRemaining: number;
   entryFee: number; // $10
   status: 'filling' | 'confirming' | 'opening' | 'running' | 'settled' | 'cancelled' | 'full';

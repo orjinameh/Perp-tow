@@ -14,8 +14,12 @@ import {
 import { enterMatch, closeMyPosition, myDirection } from '@/lib/trading';
 import { nowSec } from '@/lib/clock';
 import { leverageChoices } from '@/lib/gameTag';
+import type { GameMatch } from '@/lib/types';
+import type { SquadArenaView, WorldRoom } from '@/components/World3D';
 
 const Hall = dynamic(() => import('@/components/SquadsHall3D').then((m) => m.SquadsHall3D), { ssr: false, loading: () => <div className="h-[420px] flex items-center justify-center text-sm opacity-70">Building the hall…</div> });
+
+const World = dynamic(() => import('@/components/World3D').then((m) => m.World3D), { ssr: false, loading: () => <div className="h-full flex items-center justify-center text-sm opacity-70">Building the 3D world…</div> });
 
 type Hex = `0x${string}`;
 const short = (a: string) => `${a.slice(0, 6)}…${a.slice(-4)}`;
@@ -39,6 +43,9 @@ export default function SquadsPage() {
   const [picker, setPicker] = useState(false);
   const [ticket, setTicket] = useState<SquadMatch | 'new' | null>(null);
   const [newSize, setNewSize] = useState(4);
+  const [view, setView] = useState<'world' | 'screens'>('world');
+  const [room, setRoom] = useState<WorldRoom>({ kind: 'hub' });
+  const [draftNumber, setDraftNumber] = useState<number | null>(null);
 
   const market = live.markets.find((m) => m.ticker === ticker);
   const me = wallet.address;
@@ -76,16 +83,26 @@ export default function SquadsPage() {
   const key = wallet.key as Hex | null;
 
   const act = async (title: string, labels: string[], fn: () => Promise<unknown>) => {
-    await progress.run(title, labels, async (adv) => { adv(0); await fn(); });
+    const out = await progress.run(title, labels, async (adv) => { adv(0); await fn(); });
     await reload();
+    return out.ok;
   };
+  const toArena = () => setRoom({ kind: 'arena', ticker });
 
-  const open = () => key && act('Opening a match', ['Seat + stake'], async () => {
-    const n = await nextSquadNumber(ticker);
-    await enterSquad(key, ticker, n, me as Hex, Math.max(2, Math.min(newSize, params?.size ?? newSize)));
-    setSelected(n);
-  });
-  const join = (m: SquadMatch) => key && act('Taking your seat', ['Seat + stake'], () => enterSquad(key, ticker, m.number, me as Hex, m.size));
+  const open = async () => {
+    if (!key) return;
+    const ok = await act('Opening a match', ['Seat + stake'], async () => {
+      const n = await nextSquadNumber(ticker);
+      await enterSquad(key, ticker, n, me as Hex, Math.max(2, Math.min(newSize, params?.size ?? newSize)));
+      setSelected(n);
+    });
+    if (ok) { setTicket(null); if (view === 'world') toArena(); }
+  };
+  const join = async (m: SquadMatch) => {
+    if (!key) return;
+    const ok = await act('Taking your seat', ['Seat + stake'], () => enterSquad(key, ticker, m.number, me as Hex, m.size));
+    if (ok) { setSelected(m.number); setTicket(null); if (view === 'world') toArena(); }
+  };
   const leave = (m: SquadMatch) => key && act('Leaving', ['Leave and refund'], () => leaveSquad(key, ticker, m.number, me as Hex));
   const confirm = (m: SquadMatch) => key && act('Confirming', ['Confirm'], () => confirmSquad(key, ticker, m.number, me as Hex));
   const finish = (m: SquadMatch) => key && act('Locking the match', ['Lock'], () => finishSquad(key, ticker, m.number));
@@ -104,87 +121,7 @@ export default function SquadsPage() {
   const cap = (params?.stakeUsd ?? 10) * 10;
   const lead = Math.max(-1, Math.min(1, gap / cap)); // a full cap of difference fills the rope
 
-  return (
-    <Shell>
-      {progress.modal}
-      <div className="flex flex-wrap items-center gap-3 mb-4">
-        <select className="border rounded px-2 py-1 bg-transparent" value={ticker} onChange={(e) => { setTicker(e.target.value); setSelected(null); }}>
-          {(live.markets.length ? live.markets.map((m) => m.ticker) : ['BTC']).map((t) => <option key={t}>{t}</option>)}
-        </select>
-        <button className="border rounded px-3 py-1" onClick={() => setTicket('new')} disabled={!key || !me}>Open a new match (${params?.stakeUsd ?? 10} stake)</button>
-        <Link href="/?classic=1" className="underline text-sm">Old direction-based game</Link>
-      </div>
-      <div className="mb-4">
-        <Hall matches={matches} size={params?.size ?? 4} me={me} now={now} selected={match} onJoinRing={() => setPicker(true)} onOpenRing={() => setTicket('new')} />
-      </div>
-      {picker && (
-        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4" onClick={() => setPicker(false)}>
-          <div className="bg-zinc-900 text-white rounded p-4 w-full max-w-md max-h-[80vh] overflow-auto" onClick={(e) => e.stopPropagation()}>
-            <h2 className="font-semibold mb-2">Open rooms on {ticker}</h2>
-            {!matches.filter((m) => m.phase === 'filling').length && <p className="text-sm opacity-70">No room is open right now. Step on the other ring to open one.</p>}
-            <ul className="space-y-2">
-              {matches.filter((m) => m.phase === 'filling').map((m) => {
-                const here = !!me && m.players.some((p) => p.address.toLowerCase() === me.toLowerCase());
-                return (
-                  <li key={m.id} className="flex items-center justify-between border rounded p-2">
-                    <span>{m.id} · {m.players.length}/{m.size || '?'} · {mmss(m.lobbyEndsAt - now)}</span>
-                    <button className="border rounded px-3 py-1" onClick={() => { setPicker(false); setSelected(m.number); if (!here) setTicket(m); }}>{here ? 'Go to seat' : 'Join'}</button>
-                  </li>
-                );
-              })}
-            </ul>
-            <button className="mt-3 underline text-sm" onClick={() => setPicker(false)}>Close</button>
-          </div>
-        </div>
-      )}
-      {ticket && (() => {
-        const t = ticket === 'new' ? null : ticket;
-        const stakeUsd = params?.stakeUsd ?? 10;
-        const maxSize = params?.size ?? 4;
-        const size = t ? t.size : Math.max(2, Math.min(newSize, maxSize));
-        const seated = t ? t.players.length : 0;
-        return (
-          <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4" onClick={() => setTicket(null)}>
-            <div className="bg-zinc-900 text-white rounded p-5 w-full max-w-md max-h-[85vh] overflow-auto" onClick={(e) => e.stopPropagation()}>
-              <p className="text-xs opacity-60">ENTRY TICKET</p>
-              <h2 className="text-lg font-semibold">{t ? t.id : `${ticker} · new match room`}</h2>
-              <dl className="text-sm my-3 space-y-2">
-                <div className="flex justify-between"><dt className="opacity-70">Market</dt><dd>{ticker}-PERP, only {ticker} players</dd></div>
-                <div className="flex justify-between"><dt className="opacity-70">Stake</dt><dd>${stakeUsd.toFixed(2)} USDso, paid when you take the seat</dd></div>
-                <div className="flex justify-between"><dt className="opacity-70">Pool at a full room</dt><dd>${(stakeUsd * size).toFixed(2)}</dd></div>
-                <div className="flex justify-between items-center"><dt className="opacity-70">Seats</dt><dd>{t ? `${seated} / ${size} taken` : (<select className="bg-transparent border rounded px-1" value={size} onChange={(e) => setNewSize(Number(e.target.value))}>{Array.from({ length: Math.max(1, maxSize - 1) }, (_, i) => i + 2).map((n) => <option key={n} value={n} className="text-black">{n} players</option>)}</select>)}</dd></div>
-                <div className="flex justify-between"><dt className="opacity-70">Your team</dt><dd>Drawn at random at the lock</dd></div>
-                <div className="flex justify-between"><dt className="opacity-70">Winner</dt><dd>Team with the bigger real account gain</dd></div>
-                <div className="flex justify-between"><dt className="opacity-70">Payout</dt><dd>Stake back + {Math.round((1 - (params?.rake ?? 0.2)) * 100)}% of the losers' pool</dd></div>
-              </dl>
-              <p className="text-xs opacity-70 mb-3">Taking the seat stakes ${stakeUsd}. Leave before the lock and the stake comes straight back. Nobody picks a side: once the match locks you can trade any direction, with any leverage, as often as you like. A tie or a match that never starts refunds everyone.</p>
-              <div className="flex gap-2">
-                <button className="border rounded px-3 py-1" onClick={() => setTicket(null)}>Back</button>
-                <button className="border rounded px-3 py-1" onClick={() => { const x = ticket; setTicket(null); if (x === 'new') void open(); else join(x); }}>Take my seat</button>
-              </div>
-            </div>
-          </div>
-        );
-      })()}
-      {error && <p className="text-red-500 text-sm mb-3">{error}</p>}
-      <div className="grid md:grid-cols-[1fr_320px] gap-6">
-        <div>
-          <h2 className="font-semibold mb-2">Matches</h2>
-          {!matches.length && <p className="text-sm opacity-70">No matches yet on {ticker}. Open one.</p>}
-          <ul className="space-y-2">
-            {matches.map((m) => (
-              <li key={m.id}>
-                <button onClick={() => setSelected(m.number)} className={`w-full text-left border rounded p-3 ${selected === m.number ? 'ring-2' : ''}`}>
-                  <span className="font-medium">{m.id}</span> · {m.players.length}/{m.size || '?'} seated · <span className="opacity-70">{m.phase}</span>
-                </button>
-              </li>
-            ))}
-          </ul>
-        </div>
-        <div><WalletPanel wallet={wallet} /></div>
-      </div>
-
-      {match && (
+  const panel = match ? (
         <section className="mt-6 border rounded p-4">
           <h2 className="font-semibold">{match.id} · {match.phase}{left > 0 && ` · ${mmss(left)}`}</h2>
 
@@ -246,7 +183,152 @@ export default function SquadsPage() {
           {match.phase === 'ended' && <p className="text-sm mt-3">Time is up. Leading team: {chain ? (w === 3 ? 'tie' : w === 1 ? 'Red' : 'Blue') : '…'}. Anyone can press Settle: the contract computes the winner from dreamDEX equity, then winners claim.</p>}
           {match.phase === 'settled' && <p className="text-sm mt-3">Result: {match.result === 3 ? 'tie (refund)' : `${TEAM_NAME[match.result as 1 | 2]} won`}.</p>}
         </section>
+  ) : null;
+
+
+  const toGame = (m: SquadMatch): GameMatch => ({
+    id: m.id, market: m.ticker as GameMatch['market'], bulls: 0, bears: 0, total: m.players.length, requiredPlayers: m.size, size: m.size,
+    slotsRemaining: Math.max(0, m.size - m.players.length), entryFee: params?.stakeUsd ?? 10,
+    status: m.phase === 'filling' ? 'filling' : m.phase === 'confirming' ? 'confirming' : m.phase === 'trading' ? 'running' : m.phase === 'cancelled' ? 'cancelled' : m.phase === 'settled' ? 'settled' : 'running',
+    lobbyEndsAt: m.lobbyEndsAt,
+    playersList: m.players.map((p) => ({ isUser: !!me && p.address.toLowerCase() === me.toLowerCase(), side: 'bulls' })),
+  } as unknown as GameMatch);
+  const draft: SquadMatch | null = draftNumber ? { id: `${ticker} #${draftNumber}`, ticker, number: draftNumber, size: Math.max(2, Math.min(newSize, params?.size ?? newSize)), players: [], phase: 'filling', firstAt: 0, lockAt: 0, endsAt: 0, lobbyEndsAt: 0, confirmEndsAt: 0, result: 0, red: 0, blue: 0 } : null;
+  const ticketMatch = ticket === 'new' ? draft : ticket;
+  const arena: SquadArenaView | null = match
+    ? { id: match.id, phase: match.phase, left: Math.max(0, left), size: match.size, players: match.players.map((p) => ({ team: p.team, confirmed: p.confirmed, isMe: !!me && p.address.toLowerCase() === me.toLowerCase() })), red: chain ? chain.red : null, blue: chain ? chain.blue : null, result: match.result }
+    : null;
+  const worldView = (
+    <div className="relative h-[calc(100vh-11rem)] min-h-[480px] rounded border overflow-hidden">
+      <World
+        room={room}
+        markets={live.markets}
+        side={null}
+        match={null}
+        resume={null}
+        frozen={false}
+        squads
+        arena={arena}
+        matches={matches.map(toGame)}
+        selectedMatch={ticketMatch ? toGame(ticketMatch) : null}
+        ticketOpen={ticket !== null}
+        onEnterMarket={(t) => { setTicker(t); setSelected(null); setTicket(null); setRoom({ kind: 'market', ticker: t }); }}
+        onPickSide={() => {}}
+        onPickMatch={(g) => {
+          const m = matches.find((x) => x.id === g.id);
+          if (!m) return;
+          setSelected(m.number);
+          if (me && m.players.some((p) => p.address.toLowerCase() === me.toLowerCase())) { setTicket(null); toArena(); } else setTicket(m);
+        }}
+        onOpenNew={async () => { setDraftNumber(await nextSquadNumber(ticker).catch(() => null)); setTicket('new'); }}
+        onConfirmSeat={() => { if (ticket === 'new') void open(); else if (ticket) void join(ticket); }}
+        onCloseTicket={() => setTicket(null)}
+        onBackToLobby={() => { setTicket(null); if (room.kind === 'arena') setRoom({ kind: 'market', ticker }); else setRoom({ kind: 'hub' }); }}
+        onResume={() => {}}
+        onFail={() => setView('screens')}
+      />
+      {room.kind === 'arena' && panel && (
+        <div className="absolute left-3 top-3 z-10 w-[min(92vw,26rem)] max-h-[85%] overflow-y-auto rounded-xl border border-zinc-700 bg-zinc-950/90 text-zinc-100 p-2 text-sm">{panel}</div>
       )}
+      {room.kind === 'market' && ticket === 'new' && (
+        <div className="absolute right-3 top-3 z-10 flex items-center gap-2 rounded-xl border border-zinc-700 bg-zinc-950/90 px-3 py-2 text-xs text-zinc-200">
+          Room size
+          <select className="bg-transparent border rounded px-1" value={Math.max(2, Math.min(newSize, params?.size ?? newSize))} onChange={(e) => setNewSize(Number(e.target.value))}>
+            {Array.from({ length: Math.max(1, (params?.size ?? 4) - 1) }, (_, i) => i + 2).map((n) => <option key={n} value={n} className="text-black">{n} players</option>)}
+          </select>
+        </div>
+      )}
+      {room.kind === 'hub' && <div className="pointer-events-none absolute left-3 top-3 rounded-xl border border-zinc-800 bg-zinc-950/80 px-3 py-2 text-xs text-zinc-300">Walk into a market door. Random teams, free trading, ${params?.stakeUsd ?? 10} stake.</div>}
+    </div>
+  );
+
+  return (
+    <Shell>
+      {progress.modal}
+      <div className="mb-3 flex items-center gap-3 text-sm">
+        <button className="border rounded px-3 py-1" onClick={() => setView(view === 'world' ? 'screens' : 'world')}>{view === 'world' ? 'Screens view' : '3D world'}</button>
+        <Link href="/?classic=1" className="underline">Old direction-based game</Link>
+      </div>
+      {view === 'world' ? worldView : (<>
+      <div className="flex flex-wrap items-center gap-3 mb-4">
+        <select className="border rounded px-2 py-1 bg-transparent" value={ticker} onChange={(e) => { setTicker(e.target.value); setSelected(null); }}>
+          {(live.markets.length ? live.markets.map((m) => m.ticker) : ['BTC']).map((t) => <option key={t}>{t}</option>)}
+        </select>
+        <button className="border rounded px-3 py-1" onClick={() => setTicket('new')} disabled={!key || !me}>Open a new match (${params?.stakeUsd ?? 10} stake)</button>
+      </div>
+      <div className="mb-4">
+        <Hall matches={matches} size={params?.size ?? 4} me={me} now={now} selected={match} onJoinRing={() => setPicker(true)} onOpenRing={() => setTicket('new')} />
+      </div>
+      {view === 'screens' && picker && (
+        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4" onClick={() => setPicker(false)}>
+          <div className="bg-zinc-900 text-white rounded p-4 w-full max-w-md max-h-[80vh] overflow-auto" onClick={(e) => e.stopPropagation()}>
+            <h2 className="font-semibold mb-2">Open rooms on {ticker}</h2>
+            {!matches.filter((m) => m.phase === 'filling').length && <p className="text-sm opacity-70">No room is open right now. Step on the other ring to open one.</p>}
+            <ul className="space-y-2">
+              {matches.filter((m) => m.phase === 'filling').map((m) => {
+                const here = !!me && m.players.some((p) => p.address.toLowerCase() === me.toLowerCase());
+                return (
+                  <li key={m.id} className="flex items-center justify-between border rounded p-2">
+                    <span>{m.id} · {m.players.length}/{m.size || '?'} · {mmss(m.lobbyEndsAt - now)}</span>
+                    <button className="border rounded px-3 py-1" onClick={() => { setPicker(false); setSelected(m.number); if (!here) setTicket(m); }}>{here ? 'Go to seat' : 'Join'}</button>
+                  </li>
+                );
+              })}
+            </ul>
+            <button className="mt-3 underline text-sm" onClick={() => setPicker(false)}>Close</button>
+          </div>
+        </div>
+      )}
+      {view === 'screens' && ticket && (() => {
+        const t = ticket === 'new' ? null : ticket;
+        const stakeUsd = params?.stakeUsd ?? 10;
+        const maxSize = params?.size ?? 4;
+        const size = t ? t.size : Math.max(2, Math.min(newSize, maxSize));
+        const seated = t ? t.players.length : 0;
+        return (
+          <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4" onClick={() => setTicket(null)}>
+            <div className="bg-zinc-900 text-white rounded p-5 w-full max-w-md max-h-[85vh] overflow-auto" onClick={(e) => e.stopPropagation()}>
+              <p className="text-xs opacity-60">ENTRY TICKET</p>
+              <h2 className="text-lg font-semibold">{t ? t.id : `${ticker} · new match room`}</h2>
+              <dl className="text-sm my-3 space-y-2">
+                <div className="flex justify-between"><dt className="opacity-70">Market</dt><dd>{ticker}-PERP, only {ticker} players</dd></div>
+                <div className="flex justify-between"><dt className="opacity-70">Stake</dt><dd>${stakeUsd.toFixed(2)} USDso, paid when you take the seat</dd></div>
+                <div className="flex justify-between"><dt className="opacity-70">Pool at a full room</dt><dd>${(stakeUsd * size).toFixed(2)}</dd></div>
+                <div className="flex justify-between items-center"><dt className="opacity-70">Seats</dt><dd>{t ? `${seated} / ${size} taken` : (<select className="bg-transparent border rounded px-1" value={size} onChange={(e) => setNewSize(Number(e.target.value))}>{Array.from({ length: Math.max(1, maxSize - 1) }, (_, i) => i + 2).map((n) => <option key={n} value={n} className="text-black">{n} players</option>)}</select>)}</dd></div>
+                <div className="flex justify-between"><dt className="opacity-70">Your team</dt><dd>Drawn at random at the lock</dd></div>
+                <div className="flex justify-between"><dt className="opacity-70">Winner</dt><dd>Team with the bigger real account gain</dd></div>
+                <div className="flex justify-between"><dt className="opacity-70">Payout</dt><dd>Stake back + {Math.round((1 - (params?.rake ?? 0.2)) * 100)}% of the losers' pool</dd></div>
+              </dl>
+              <p className="text-xs opacity-70 mb-3">Taking the seat stakes ${stakeUsd}. Leave before the lock and the stake comes straight back. Nobody picks a side: once the match locks you can trade any direction, with any leverage, as often as you like. A tie or a match that never starts refunds everyone.</p>
+              <div className="flex gap-2">
+                <button className="border rounded px-3 py-1" onClick={() => setTicket(null)}>Back</button>
+                <button className="border rounded px-3 py-1" onClick={() => { const x = ticket; setTicket(null); if (x === 'new') void open(); else join(x); }}>Take my seat</button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+      {error && <p className="text-red-500 text-sm mb-3">{error}</p>}
+      <div className="grid md:grid-cols-[1fr_320px] gap-6">
+        <div>
+          <h2 className="font-semibold mb-2">Matches</h2>
+          {!matches.length && <p className="text-sm opacity-70">No matches yet on {ticker}. Open one.</p>}
+          <ul className="space-y-2">
+            {matches.map((m) => (
+              <li key={m.id}>
+                <button onClick={() => setSelected(m.number)} className={`w-full text-left border rounded p-3 ${selected === m.number ? 'ring-2' : ''}`}>
+                  <span className="font-medium">{m.id}</span> · {m.players.length}/{m.size || '?'} seated · <span className="opacity-70">{m.phase}</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+        <div><WalletPanel wallet={wallet} /></div>
+      </div>
+
+      {panel}
+
+      </>)}
     </Shell>
   );
 }

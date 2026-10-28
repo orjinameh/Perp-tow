@@ -38,6 +38,20 @@ interface Props {
   onOpenNew?: () => void;
   onConfirmSeat?: () => void;
   onCloseTicket?: () => void;
+  // Squads mode: no side pads, random teams, and a different arena
+  squads?: boolean;
+  arena?: SquadArenaView | null;
+}
+
+export interface SquadArenaView {
+  id: string;
+  phase: string; // filling | confirming | finishable | trading | ended | settled | cancelled
+  left: number; // seconds left in the current phase
+  size: number;
+  players: { team: 0 | 1 | 2; confirmed: boolean; isMe: boolean }[];
+  red: number | null; // live team scores in USDso
+  blue: number | null;
+  result: number; // 0 pending, 1 Red, 2 Blue, 3 refund
 }
 
 interface Trigger {
@@ -355,6 +369,7 @@ export const World3D: React.FC<Props> = (props) => {
       const d = 14;
       roomShell(w, d, 0x151c2f, 0x0e1526);
       const getM = () => live.current.markets.find((m) => m.ticker === ticker) ?? null;
+      const sq = !!live.current.squads;
 
       // chart wall
       slab(10.4, 4.9, 0.2, 0x1e293b, 0, 3.3, -d / 2 + 0.12);
@@ -379,14 +394,14 @@ export const World3D: React.FC<Props> = (props) => {
         c.font = 'bold 56px system-ui, sans-serif';
         c.textAlign = 'center';
         c.textBaseline = 'middle';
-        c.fillText('PICK YOUR SIDE', cw / 2, ch / 2);
+        c.fillText(sq ? 'FIND A MATCH' : 'PICK YOUR SIDE', cw / 2, ch / 2);
       }, 0, 2.0, deskZ - 0.1, true);
       sign(4.6, 0.5, 1024, (c, cw, ch) => {
         c.fillStyle = '#94a3b8';
         c.font = '34px system-ui, sans-serif';
         c.textAlign = 'center';
         c.textBaseline = 'middle';
-        c.fillText('Stand on a pad. You turn into that animal.', cw / 2, ch / 2);
+        c.fillText(sq ? 'Right wall: open rooms. Left wall: your ticket. Teams are random.' : 'Stand on a pad. You turn into that animal.', cw / 2, ch / 2);
       }, 0, 1.5, deskZ - 0.1, true);
 
       const pad = (px: number, side: PositionSide, color: number, css: string, title: string, sub: string) => {
@@ -420,8 +435,10 @@ export const World3D: React.FC<Props> = (props) => {
           fades: false,
         });
       };
-      pad(-3.6, 'bulls', 0x10b981, '#34d399', 'BULLS', 'Long: price goes up');
-      pad(3.6, 'bears', 0xf43f5e, '#fb7185', 'BEARS', 'Short: price goes down');
+      if (!sq) {
+        pad(-3.6, 'bulls', 0x10b981, '#34d399', 'BULLS', 'Long: price goes up');
+        pad(3.6, 'bears', 0xf43f5e, '#fb7185', 'BEARS', 'Short: price goes down');
+      }
 
 
       // ---- Match wall (east wall): one board and one pad per joinable match, plus "open a new match".
@@ -441,8 +458,8 @@ export const World3D: React.FC<Props> = (props) => {
         c.fillStyle = '#f8fafc'; c.font = 'bold 56px system-ui, sans-serif';
         c.fillText(`${ticker} ACTIVE MATCHES`, cw / 2, ch * 0.36);
         c.font = '34px system-ui, sans-serif';
-        c.fillStyle = L.side ? (L.side === 'bulls' ? '#34d399' : '#fb7185') : '#fbbf24';
-        c.fillText(L.side ? `Your pick: ${L.side === 'bulls' ? 'BULLS (LONG)' : 'BEARS (SHORT)'}. Step on a pad to join.` : 'First pick Bulls or Bears on the pads below.', cw / 2, ch * 0.76);
+        c.fillStyle = sq || L.side ? (sq || L.side === 'bulls' ? '#34d399' : '#fb7185') : '#fbbf24';
+        c.fillText(sq ? 'Step on a pad to join. Teams are drawn at random at the lock.' : L.side ? `Your pick: ${L.side === 'bulls' ? 'BULLS (LONG)' : 'BEARS (SHORT)'}. Step on a pad to join.` : 'First pick Bulls or Bears on the pads below.', cw / 2, ch * 0.76);
       }, wallX, 3.7, -1);
       faceRoom(head.mesh, -Math.PI / 2);
       const rows: Panel[] = [];
@@ -462,7 +479,7 @@ export const World3D: React.FC<Props> = (props) => {
           const left = m.lobbyEndsAt ? Math.max(0, m.lobbyEndsAt - nowSec()) : 0;
           c.fillStyle = '#f8fafc'; c.font = 'bold 56px system-ui, sans-serif'; c.fillText(m.id, 32, ch * 0.32);
           c.fillStyle = '#34d399'; c.font = 'bold 40px system-ui, sans-serif';
-          c.fillText(`${m.total}/${MATCH_SIZE} seated · ${m.bulls} bulls · ${m.bears} bears`, 32, ch * 0.62);
+          c.fillText(sq ? `${m.total}/${m.size ?? MATCH_SIZE} seated · teams at the lock` : `${m.total}/${MATCH_SIZE} seated · ${m.bulls} bulls · ${m.bears} bears`, 32, ch * 0.62);
           c.fillStyle = '#94a3b8'; c.font = '32px system-ui, sans-serif';
           c.fillText(mine ? 'You are seated: step here to return' : `Lobby ${clock(left)} left · $${NOMINAL_STAKE_USD} stake`, 32, ch * 0.86);
         }, wallX, 1.7, z);
@@ -479,7 +496,7 @@ export const World3D: React.FC<Props> = (props) => {
           dwell: 0.8,
           fire: () => {
             const L = live.current;
-            if (!L.side) return;
+            if (!sq && !L.side) return;
             if (i === 5) L.onOpenNew?.();
             else { const m = joinable()[i]; if (m) L.onPickMatch?.(m); }
           },
@@ -496,7 +513,7 @@ export const World3D: React.FC<Props> = (props) => {
         c.fillStyle = 'rgba(8,15,30,0.94)'; c.fillRect(0, 0, cw, ch);
         c.textAlign = 'left'; c.textBaseline = 'middle';
         c.fillStyle = '#34d399'; c.font = 'bold 40px system-ui, sans-serif'; c.fillText('TUG OF WAR ENTRY TICKET', 48, ch * 0.09);
-        if (!m || !L.side) {
+        if (!m || (!sq && !L.side)) {
           c.fillStyle = '#94a3b8'; c.font = '48px system-ui, sans-serif';
           c.fillText('Pick a match on the right wall', 48, ch * 0.45);
           c.font = '36px system-ui, sans-serif'; c.fillText('Your ticket appears here before you sit.', 48, ch * 0.58);
@@ -508,14 +525,20 @@ export const World3D: React.FC<Props> = (props) => {
           c.fillStyle = vc; c.font = 'bold 40px system-ui, sans-serif'; c.textAlign = 'right'; c.fillText(v, cw - 48, ch * y); c.textAlign = 'left';
         };
         c.fillStyle = '#f8fafc'; c.font = 'bold 84px system-ui, sans-serif'; c.fillText(m.id, 48, ch * 0.2);
-        line(0.33, 'Your team', L.side === 'bulls' ? 'BULLS (LONG)' : 'BEARS (SHORT)', L.side === 'bulls' ? '#34d399' : '#fb7185');
+        if (sq) line(0.33, 'Your team', 'Drawn at random at the lock', '#fbbf24');
+        else line(0.33, 'Your team', L.side === 'bulls' ? 'BULLS (LONG)' : 'BEARS (SHORT)', L.side === 'bulls' ? '#34d399' : '#fb7185');
         line(0.43, 'Market', `${ticker} / USD, isolated`);
         line(0.53, 'Stake', `$${NOMINAL_STAKE_USD}.00`);
-        line(0.63, 'Seats taken', `${m.total} / ${MATCH_SIZE}  (${m.bulls} bulls, ${m.bears} bears)`);
-        line(0.73, 'Leverage', `${lev}x: $${NOMINAL_STAKE_USD} x ${lev} = $${NOMINAL_STAKE_USD * lev} exposure`);
+        if (sq) {
+          line(0.63, 'Seats taken', `${m.total} / ${m.size ?? MATCH_SIZE}`);
+          line(0.73, 'Trading', 'Any direction, any leverage, any time');
+        } else {
+          line(0.63, 'Seats taken', `${m.total} / ${MATCH_SIZE}  (${m.bulls} bulls, ${m.bears} bears)`);
+          line(0.73, 'Leverage', `${lev}x: $${NOMINAL_STAKE_USD} x ${lev} = $${NOMINAL_STAKE_USD * lev} exposure`);
+        }
         c.fillStyle = '#cbd5e1'; c.font = '30px system-ui, sans-serif';
-        c.fillText('Confirming takes your seat. Leave before the lock and nothing is lost.', 48, ch * 0.85);
-        c.fillText('Keep this tab open: your trade is placed automatically at the lock.', 48, ch * 0.92);
+        c.fillText(sq ? 'Taking the seat stakes $10. Leave before the lock and it comes back.' : 'Confirming takes your seat. Leave before the lock and nothing is lost.', 48, ch * 0.85);
+        c.fillText(sq ? 'Better team average gain wins; verified on chain.' : 'Keep this tab open: your trade is placed automatically at the lock.', 48, ch * 0.92);
       }, tX, 2.7, 0);
       faceRoom(ticket.mesh, Math.PI / 2);
       const ticketPad = (z: number, color: number, css: string, text: string, act: () => void) => {
@@ -545,7 +568,7 @@ export const World3D: React.FC<Props> = (props) => {
       let wallSig = '';
       ticks.push(() => {
         const L = live.current;
-        const sig = JSON.stringify([L.side, L.ticketOpen, L.leverage, L.selectedMatch?.id, L.selectedMatch?.total, Math.floor(nowSec()), joinable().map((m) => [m.id, m.total, m.bulls, m.bears, m.status])]);
+        const sig = JSON.stringify([L.side, L.ticketOpen, L.selectedMatch?.size, L.leverage, L.selectedMatch?.id, L.selectedMatch?.total, Math.floor(nowSec()), joinable().map((m) => [m.id, m.total, m.bulls, m.bears, m.status])]);
         if (sig === wallSig) return;
         wallSig = sig;
         head.redraw(); rows.forEach((r) => r.redraw()); ticket.redraw();
@@ -835,10 +858,107 @@ export const World3D: React.FC<Props> = (props) => {
       void ticker;
     };
 
+
+    // ---------- SQUADS ARENA: a seat ring, a status board, and the live rope between the two random teams ----------
+    const buildSquadArena = (ticker: string) => {
+      const w = 22;
+      const d = 16;
+      roomShell(w, d, 0x161d30, 0x0f1628);
+      const MAXSEATS = 20;
+      const R = 3.2;
+      const cz = 1.5;
+      const rim = new THREE.Mesh(new THREE.RingGeometry(R + 0.55, R + 0.7, 64), new THREE.MeshBasicMaterial({ color: 0x94a3b8, side: THREE.DoubleSide }));
+      rim.rotation.x = -Math.PI / 2; rim.position.set(0, 0.03, cz); add(rim);
+      const pegs: { body: THREE.Mesh; head: THREE.Mesh; mat: THREE.MeshStandardMaterial; ring: THREE.Mesh }[] = [];
+      for (let i = 0; i < MAXSEATS; i++) {
+        const mat = new THREE.MeshStandardMaterial({ color: 0x475569, roughness: 0.5 });
+        const body = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.34, 0.9, 16), mat);
+        const head = new THREE.Mesh(new THREE.SphereGeometry(0.24, 16, 12), mat);
+        const ring = new THREE.Mesh(new THREE.RingGeometry(0.45, 0.55, 24), new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.DoubleSide }));
+        ring.rotation.x = -Math.PI / 2;
+        body.visible = head.visible = ring.visible = false;
+        add(body); add(head); add(ring);
+        pegs.push({ body, head, mat, ring });
+      }
+      const board = sign(8, 2.2, 1280, (c, cw, ch) => {
+        const A = live.current.arena;
+        c.fillStyle = 'rgba(8,15,30,0.94)'; c.fillRect(0, 0, cw, ch);
+        c.textAlign = 'center'; c.textBaseline = 'middle';
+        if (!A) { c.fillStyle = '#94a3b8'; c.font = '56px system-ui, sans-serif'; c.fillText('Loading the room…', cw / 2, ch / 2); return; }
+        const mm = (x: number) => `${Math.floor(Math.max(0, x) / 60)}:${String(Math.floor(Math.max(0, x)) % 60).padStart(2, '0')}`;
+        const seated = A.players.length;
+        const text: Record<string, string> = {
+          filling: `Lobby open: ${seated}/${A.size} seated, ${mm(A.left)} left`,
+          confirming: `Continue with fewer players? ${mm(A.left)} left`,
+          finishable: 'Lobby ended: anyone can lock the match',
+          trading: `TRADING: ${mm(A.left)} left`,
+          ended: 'Time is up: press Settle',
+          settled: A.result === 3 ? 'Tie: everyone is refunded' : A.result === 1 ? 'RED WINS' : 'BLUE WINS',
+          cancelled: 'Cancelled: stakes are refundable',
+        };
+        c.fillStyle = '#f8fafc'; c.font = 'bold 84px system-ui, sans-serif'; c.fillText(A.id, cw / 2, ch * 0.28);
+        c.fillStyle = A.phase === 'trading' ? '#34d399' : A.phase === 'settled' ? (A.result === 1 ? '#f87171' : A.result === 2 ? '#60a5fa' : '#fbbf24') : '#fbbf24';
+        c.font = 'bold 60px system-ui, sans-serif'; c.fillText(text[A.phase] ?? A.phase, cw / 2, ch * 0.62);
+        c.fillStyle = '#94a3b8'; c.font = '36px system-ui, sans-serif';
+        c.fillText(A.phase === 'filling' || A.phase === 'confirming' ? 'Teams are drawn at random at the lock. Nobody picks a side.' : 'Both teams trade freely. Better average account gain wins.', cw / 2, ch * 0.86);
+      }, 0, 4.2, -d / 2 + 0.3);
+      const rope = sign(9, 1.6, 1280, (c, cw, ch) => {
+        const A = live.current.arena;
+        c.fillStyle = 'rgba(8,15,30,0.94)'; c.fillRect(0, 0, cw, ch);
+        const hasScores = !!A && A.red !== null && A.blue !== null && A.players.some((p) => p.team !== 0);
+        const bx = 60, bw = cw - 120, by = ch * 0.5, bh = 36;
+        c.fillStyle = '#1e3a8a'; c.fillRect(bx, by, bw, bh);
+        let fillW = bw / 2;
+        if (hasScores) {
+          const cap = 100;
+          const gap = (A!.red as number) - (A!.blue as number);
+          fillW = bw * (0.5 + 0.5 * Math.max(-1, Math.min(1, gap / cap)));
+        }
+        c.fillStyle = '#dc2626'; c.fillRect(bx, by, fillW, bh);
+        c.fillStyle = '#f8fafc'; c.fillRect(bx + fillW - 6, by - 12, 12, bh + 24);
+        c.textBaseline = 'middle'; c.font = 'bold 44px system-ui, sans-serif';
+        c.textAlign = 'left'; c.fillStyle = '#f87171'; c.fillText(hasScores ? `RED ${(A!.red as number) >= 0 ? '+' : ''}${(A!.red as number).toFixed(2)} USDso` : 'RED', bx, ch * 0.22);
+        c.textAlign = 'right'; c.fillStyle = '#60a5fa'; c.fillText(hasScores ? `BLUE ${(A!.blue as number) >= 0 ? '+' : ''}${(A!.blue as number).toFixed(2)} USDso` : 'BLUE', bx + bw, ch * 0.22);
+        c.textAlign = 'center'; c.fillStyle = '#94a3b8'; c.font = '30px system-ui, sans-serif';
+        c.fillText(hasScores ? 'Average account gain per team, read from the chain' : 'The rope moves once the match locks and teams trade', cw / 2, ch * 0.88);
+      }, 0, 2.2, -d / 2 + 0.3);
+      let sig = '';
+      ticks.push(() => {
+        const A = live.current.arena;
+        const n = A ? A.players.length : 0;
+        const next = JSON.stringify([A?.id, A?.phase, A?.size, A?.result, A?.red, A?.blue, Math.floor(A?.left ?? 0), A?.players.map((p) => [p.team, p.isMe])]);
+        if (next === sig) return;
+        sig = next;
+        const total = Math.max(A?.size ?? 0, n);
+        for (let i = 0; i < MAXSEATS; i++) {
+          const pg = pegs[i];
+          const angle = (i / Math.max(1, total)) * Math.PI * 2 + Math.PI / 2;
+          const x = Math.cos(angle) * R;
+          const z = cz + Math.sin(angle) * R;
+          const seat = i < total;
+          const pl = A?.players[i];
+          pg.ring.visible = seat;
+          pg.ring.position.set(x, 0.04, z);
+          pg.body.visible = pg.head.visible = !!pl;
+          pg.body.position.set(x, 0.45, z);
+          pg.head.position.set(x, 1.15, z);
+          if (pl) pg.mat.color.setHex(pl.team === 1 ? 0xef4444 : pl.team === 2 ? 0x3b82f6 : 0xcbd5e1);
+          (pg.ring.material as THREE.MeshBasicMaterial).color.setHex(pl?.isMe ? 0xfacc15 : 0x64748b);
+        }
+        board.redraw();
+        rope.redraw();
+      });
+      exitPortal(-w / 2 + 2, d / 2 - 2, 'Leave to the market room', () => live.current.onBackToLobby());
+      pos.set(0, d / 2 - 3);
+      facing = Math.PI;
+      void ticker;
+    };
+
     const setRoom = (r: WorldRoom, from: WorldRoom | null) => {
       clearRoom();
       if (r.kind === 'hub') buildHub(from && from.kind === 'market' ? from.ticker : null);
       else if (r.kind === 'market') buildMarket(r.ticker);
+      else if (live.current.squads) buildSquadArena(r.ticker);
       else buildArena(r.ticker);
       avatarRoot.position.set(pos.x, 0, pos.y);
       transitioning = false;
