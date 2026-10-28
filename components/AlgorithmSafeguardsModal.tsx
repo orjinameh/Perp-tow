@@ -1,9 +1,9 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { X, BookOpen } from 'lucide-react';
-import { MATCH_SIZE, LOBBY_SECONDS, CONFIRM_SECONDS, TRADE_SECONDS, MATCH_DURATION_SEC } from '@/lib/gameTag';
-import { calculatePayout, CORE_RULES } from '@/lib/payout';
+import { calculatePayout } from '@/lib/payout';
+import { readSquadParams, squadsEnabled } from '@/lib/squads';
 import { soundFx } from '@/lib/sound';
 
 interface AlgorithmSafeguardsModalProps {
@@ -14,21 +14,39 @@ interface AlgorithmSafeguardsModalProps {
 const mins = (s: number) => (s % 60 === 0 ? `${s / 60} min` : `${s} s`);
 const usd = (n: number) => `$${n.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
 
-/** The rules of the game, written from the same settings the game itself runs on. */
+interface Rules { stake: number; bankroll: number; rake: number; size: number; lobby: number; confirm: number; duration: number; live: boolean }
+const FALLBACK: Rules = { stake: 10, bankroll: 50, rake: 0.2, size: 20, lobby: 120, confirm: 60, duration: 300, live: false };
+
+/** The rules of the game in plain words, read from the deployed contract when it is reachable. */
 export const AlgorithmSafeguardsModal: React.FC<AlgorithmSafeguardsModalProps> = ({ isOpen, onClose }) => {
-  const [bulls, setBulls] = useState(Math.max(1, Math.floor(MATCH_SIZE / 2)));
+  const [r, setR] = useState<Rules>(FALLBACK);
+  const [total, setTotal] = useState(8);
+  const [bulls, setBulls] = useState(5);
+
+  useEffect(() => {
+    if (!isOpen || !squadsEnabled) return;
+    let stop = false;
+    readSquadParams()
+      .then((p) => { if (!stop) setR({ stake: p.stakeUsd, bankroll: p.bankrollUsd, rake: p.rake, size: p.size, lobby: p.lobbySeconds, confirm: p.confirmSeconds, duration: p.duration, live: true }); })
+      .catch(() => {});
+    return () => { stop = true; };
+  }, [isOpen]);
+
   if (!isOpen) return null;
-  const bears = Math.max(1, MATCH_SIZE - bulls);
-  const ifBulls = calculatePayout({ entryFee: CORE_RULES.ENTRY_FEE, winnerCount: bulls, loserCount: bears, rake: CORE_RULES.RAKE_RATE });
-  const ifBears = calculatePayout({ entryFee: CORE_RULES.ENTRY_FEE, winnerCount: bears, loserCount: bulls, rake: CORE_RULES.RAKE_RATE });
+  const n = Math.max(2, Math.min(total, r.size));
+  const b = Math.max(1, Math.min(bulls, n - 1));
+  const e = n - b;
+  const ifBulls = calculatePayout({ entryFee: r.stake, winnerCount: b, loserCount: e, rake: r.rake });
+  const ifBears = calculatePayout({ entryFee: r.stake, winnerCount: e, loserCount: b, rake: r.rake });
 
   const steps = [
-    `Pick a perp market and a side: Bulls (long) or Bears (short). Take a seat in a lobby. Nothing is staked yet.`,
-    `The lobby stays open for ${mins(LOBBY_SECONDS)} after its first player. Study the chart. A match of ${MATCH_SIZE} locks the moment it is full and needs both teams.`,
-    `If the lobby ends short of full, the players who are in get ${mins(CONFIRM_SECONDS)} to say "continue with fewer players". Anyone who does not answer is out. If either team ends up empty, the match is cancelled.`,
-    `At the lock, for ${TRADE_SECONDS} seconds, every player's tab stakes ${usd(CORE_RULES.ENTRY_FEE)} USDso in the escrow and places a real market order on the dreamDEX perp pool, long for Bulls and short for Bears, at the leverage the player chose.`,
-    `The price clock then runs for ${mins(MATCH_DURATION_SEC)}. If the market's price is higher at the end than at the start, Bulls win. If it is lower, Bears win. An exact tie is a refund.`,
-    `Winners claim their stake back plus a share of the losing pool. Losers lose their stake. If the result is never posted, everyone can reclaim their stake.`,
+    `Pick a market and open a match room, or join one. You choose the room size (2 to ${r.size} players). Taking a seat costs a ${usd(r.stake)} USDso stake.`,
+    `At the same moment you get your own trading account, a "vault", funded with ${usd(r.bankroll)} of play money (your bankroll). It is the same for every player and comes back to you after the match.`,
+    `You are put on team Bulls or team Bears at random the moment you sit. Nobody picks a side, and teams can be uneven, such as 15 against 5.`,
+    `The lobby stays open for ${mins(r.lobby)} after the first seat. A full room starts at once. If it ends short of full, the seated players get ${mins(r.confirm)} to confirm "continue with fewer players", and the match is cancelled and refunded if either team ends up empty.`,
+    `Then everyone trades freely for ${mins(r.duration)} with real market orders on dreamDEX from their own vault: buy or sell, as often as you like. You can trade by hand or run your own script in the bot box.`,
+    `Each team is scored by the average gain of its players' vaults, so team size is never an advantage. The better average wins; a tie refunds everyone. The contract reads the numbers from dreamDEX itself, and anyone can press Settle.`,
+    `Winners get their stake back plus a share of the losing team's stakes, and every player's bankroll goes back to them.`,
   ];
 
   return (
@@ -57,6 +75,10 @@ export const AlgorithmSafeguardsModal: React.FC<AlgorithmSafeguardsModalProps> =
         </div>
 
         <div className="space-y-6 p-6 text-sm text-zinc-300">
+          <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/5 p-4 text-xs leading-relaxed text-emerald-100">
+            <b>In one minute:</b> you join a room, you are randomly made a Bull or a Bear, and everyone trades real perps with the same play money. The team whose players gained more on average wins the other team&apos;s stakes. Testnet only, nothing here is real money.
+          </div>
+
           <ol className="space-y-2.5">
             {steps.map((t, i) => (
               <li key={i} className="flex gap-3">
@@ -66,19 +88,20 @@ export const AlgorithmSafeguardsModal: React.FC<AlgorithmSafeguardsModalProps> =
             ))}
           </ol>
 
-          <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/5 p-4 text-xs leading-relaxed text-emerald-100">
-            <b>The result never depends on head count or leverage.</b> Only the price direction decides who wins. Leverage only changes the size of your own real position.
-          </div>
-
           <div className="space-y-3 rounded-2xl border border-zinc-800 bg-zinc-950/60 p-4">
             <div className="flex items-center justify-between">
               <h3 className="font-bold text-white">Payout calculator</h3>
-              <span className="font-mono text-[11px] text-zinc-500">payout = stake + {(1 - CORE_RULES.RAKE_RATE) * 100}% × stake × losers ÷ winners</span>
+              <span className="font-mono text-[11px] text-zinc-500">payout = stake + {Math.round((1 - r.rake) * 100)}% × stake × losers ÷ winners</span>
             </div>
             <label className="flex items-center gap-3 text-xs text-zinc-400">
-              Bulls in a full match of {MATCH_SIZE}
-              <input type="range" min={1} max={Math.max(1, MATCH_SIZE - 1)} value={bulls} onChange={(e) => setBulls(Number(e.target.value))} className="flex-1 accent-emerald-500" />
-              <span className="font-mono text-white">{bulls} v {bears}</span>
+              Players in the room
+              <input type="range" min={2} max={Math.max(2, r.size)} value={n} onChange={(ev) => setTotal(Number(ev.target.value))} className="flex-1 accent-emerald-500" />
+              <span className="font-mono text-white">{n}</span>
+            </label>
+            <label className="flex items-center gap-3 text-xs text-zinc-400">
+              Bulls (the rest are Bears)
+              <input type="range" min={1} max={Math.max(1, n - 1)} value={b} onChange={(ev) => setBulls(Number(ev.target.value))} className="flex-1 accent-emerald-500" />
+              <span className="font-mono text-white">{b} v {e}</span>
             </label>
             <div className="grid grid-cols-2 gap-3 text-xs">
               <div className="rounded-xl border border-zinc-800 p-3">
@@ -92,14 +115,14 @@ export const AlgorithmSafeguardsModal: React.FC<AlgorithmSafeguardsModalProps> =
                 <div className="text-zinc-500">profit {ifBears ? usd(ifBears.netProfitPerWinner) : '—'}</div>
               </div>
             </div>
-            <p className="text-[11px] text-zinc-500">{CORE_RULES.RAKE_RATE * 100}% of the losing pool is the rake and stays in the escrow for the operator. This is a calculator, not a result.</p>
+            <p className="text-[11px] text-zinc-500">{Math.round(r.rake * 100)}% of the losing stakes is the rake. Teams are scored by average gain, so a smaller team is not at a disadvantage, but it does earn more per player when it wins. This is a calculator, not a result.{r.live ? '' : ' (Showing default settings: the contract could not be read.)'}</p>
           </div>
 
           <div className="space-y-1.5 text-xs leading-relaxed text-zinc-400">
-            <h3 className="text-sm font-bold text-white">What to trust</h3>
-            <p>Seats and stakes are held by contracts on the Somnia Hideki testnet. The seat registry holds no money. The escrow holds the stakes and pays them out.</p>
-            <p>The escrow operator posts the final result, computed from public dreamDEX candle data. It cannot take stakes, only the rake of a settled match. If it never posts a result, every player can reclaim their stake after a grace period.</p>
-            <p>The game wallet is created in this browser for the testnet only. Do not put a key that holds real funds into it.</p>
+            <h3 className="text-sm font-bold text-white">What to trust, and what not to</h3>
+            <p>Stakes and vaults are held by one contract on the Somnia Hideki testnet. Nobody posts the result: it is computed on chain from each vault&apos;s real dreamDEX account. The operator can only collect the rake. If a match is never settled, everyone can reclaim their stake after a grace period.</p>
+            <p>Each vault trades only for its owner and pays only its owner. Your game wallet key is encrypted in this browser with your PIN.</p>
+            <p>Known limits: one person with several wallets could collude across teams, team draws use the previous block&apos;s hash, and nobody settles automatically unless a player&apos;s tab is open. See SECURITY.md in the repository.</p>
           </div>
         </div>
       </div>

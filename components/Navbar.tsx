@@ -49,6 +49,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             </div>
           </div>
           <span>Tug of War</span>
+          <span className="rounded-full border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-[10px] font-semibold text-amber-300"><span className="hidden sm:inline">Somnia Hideki testnet</span><span className="sm:hidden">Testnet</span></span>
         </button>
 
         {/* Zone 2: Clean single-line text navigation links */}
@@ -77,7 +78,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             Safeguards
           </button>
           <span className="text-zinc-600">·</span>
-          <span className="text-xs text-zinc-500 tabular-nums">{MATCH_SIZE} Players · $10 Entry · your leverage · 20% Rake</span>
+          <span className="text-xs text-zinc-500 tabular-nums">{process.env.NEXT_PUBLIC_SQUADS_ADDRESS ? 'Random Bulls vs Bears · your own vault · real dreamDEX trades' : `${MATCH_SIZE} Players · $10 Entry · your leverage · 20% Rake`}</span>
         </nav>
 
         {/* Zone 3: 1 primary action & controls */}

@@ -1,29 +1,28 @@
 # Perp Tug of War
 
-Bulls against Bears on real dreamDEX perps. Players take a side, stake $10 USDso, and open a real market order on the pool at the same moment. When the price clock ends, the side the price moved toward wins the losing side's pool, minus a 20% rake. Built for the dreamDEX Perps Builder Bounty on the Somnia Hideki testnet.
+Bulls against Bears on real dreamDEX perps, in a 3D arena. You join a match room, you are put on team Bulls or team Bears at random, and everyone trades real perps from their own vault with the same play money. The team whose players gained more on average wins the other team's stakes. Built for the dreamDEX Perps Builder Bounty on the Somnia Hideki testnet. Testnet only: nothing here is real money.
 
-**The result never depends on head count or leverage.** Only the price direction decides it. Leverage only changes the size of a player's own real position.
+## How a match works
 
-## What it does
+1. **Open or join a room.** Walk into a market door in the 3D world, then take a seat in a room or open a new one. The host picks the room size, from 2 to 20 players.
+2. **Take a seat.** It costs a $10 USDso stake. At the same moment the contract creates **your own trading vault** funded with an equal bankroll (default $50 of USDso) that comes back to you. The vault trades only for you and pays only you.
+3. **Your team is drawn at random when you sit** (Bulls or Bears). Nobody picks a side, teams can be uneven (for example 15 against 5), the second seat is always opposite the first, and leaving means you cannot re-enter that room to reroll. If a team is empty at the lock, the match is cancelled and refunded.
+4. **The lobby fills or times out.** A full room starts at once. If the lobby ends short, the seated players confirm "continue with fewer players".
+5. **Everyone trades freely** for the match duration, with real market orders on dreamDEX from their own vault: buy or sell as often as they like, by hand or with their own script (see below).
+6. **Settlement is computed on chain.** Each team is scored by the **average** gain of its players' vault equity, read from dreamDEX's margin bank, so team size is never an advantage. The better average wins, and a tie refunds everyone. Anyone can settle, and an open player tab settles by itself.
+7. **Payout:** winners get their stake back plus a share of the losing team's stakes, `stake + (1 - rake) * stake * losers / winners`. Every player's bankroll is returned.
 
-- Lobby ("analysis time") with a live price chart. Seats only, nothing staked.
-- If the lobby ends short of full, the seated players can confirm "continue with fewer players".
-- At the lock, every player's tab stakes in the escrow and places a real market order in a 60 second trade window.
-- A 5 minute price clock, then settle and claim.
-- Pick your own leverage, up to the limit dreamDEX sets for that market.
-- Leaderboard of real traders from the indexer, with mirror copy trading while the tab is open.
-- Stake and trade history, with claim, refund and stake-return buttons.
-- Two views: a 3D world (hub of doors, market rooms, a tug-of-war arena) and a classic interface.
+Everything shown comes from the chain or the dreamDEX indexer. There is no simulated data: if something cannot be read, the app shows an empty or offline state with the reason.
 
-Everything shown is read from the chain or the dreamDEX indexer. There is no simulated data.
+## Your own bot, inside the app
+
+Under "Your vault" while a match is trading there is a script box. Paste a function `onTick(ctx)`, and every few seconds the app runs it in a sandboxed worker and, if it returns `{action:'buy'|'sell', usd}` or `{action:'close'}`, sends that real order from your vault. The script never sees your key, orders are capped to your bankroll and to 6 a minute, and the bot stops after repeated failures or when the match ends. An example momentum script is pre-filled.
 
 ## How it is built
 
-- Next.js, React, Tailwind, three.js.
-- `@somnia-chain/markets-sdk` for markets, leverage, orders and positions.
-- `contracts/TugRegistry.sol`: seats, sides and lobby timing. Holds no money.
-- `contracts/TugEscrow.sol`: stakes, the result and payouts.
-- The operator posts the result, computed from public dreamDEX candle data. It cannot take stakes, only the rake. If it never posts a result, everyone can reclaim their stake.
+- Next.js, React, Tailwind, three.js (3D world with bull, bear and rope models), viem, `@somnia-chain/markets-sdk`.
+- `contracts/TugSquads.sol`: seats, stakes, random teams, per-player `TraderVault` contracts, on-chain scoring and payouts. The operator can only collect the rake.
+- The game wallet is a key in the browser, encrypted with the player's PIN (AES-GCM, PBKDF2). It signs for the player so there are no wallet pop-ups. You can back up the key and send funds from the wallet bar.
 
 ## Run it
 
@@ -32,44 +31,28 @@ npm install
 cp .env.example .env.local
 ```
 
-Fill `.env.local` (see `.env.example`). The lobby values must equal the ones the registry was deployed with.
+Set `NEXT_PUBLIC_MATCH_SIZE=20` (the most seats any room may have), optionally `NEXT_PUBLIC_BANKROLL=50`, and a `DEPLOYER_KEY` for a testnet wallet that holds some STT. Then:
 
 ```
-npm run deploy:registry     # needs DEPLOYER_KEY
-npm run deploy:escrow       # needs DEPLOYER_KEY
-npm run dev
+npm run deploy:squads      # compiles TugSquads.sol and writes NEXT_PUBLIC_SQUADS_ADDRESS to .env.local
+npm run build
+npm start
 ```
 
-During a match the operator process starts and settles matches:
+To play: create a game wallet (choose a PIN), send it STT for gas and enough USDso for a seat (stake plus bankroll), allow it in the dreamDEX app ("Add bot", Perps ticked) if you play from a main wallet, then open a room.
 
-```
-OPERATOR_KEY=0x... npm run operator -- BTC ETH
-```
+## Honest limits
 
-A single match can also be settled by hand with `npm run settle -- BTC 3`.
+See `SECURITY.md`. In short: one person with several wallets could collude across teams, team draws use the previous block's hash, the vault does not restrict which pool it trades on, and there is no contract test suite yet. The game wallet is for the testnet only: never put a key that holds real funds into it.
 
-Players create or import a testnet game wallet in the page. Use a key that holds no real funds.
+## Demo
 
-## Bot mode
-
-The game wallet in the browser can act as a bot for your main wallet, the same idea as dreamDEX's "Add bot".
-
-- Add the game wallet as a bot in the dreamDEX app ("Add bot", Perps ticked). The game contracts accept dreamDEX's own permission, so there is nothing else to approve.
-- Your main wallet stays the player: seats, perp margin and winnings belong to it. The bot places orders against the main wallet's margin.
-- The bot pays each $10 stake from its own USDso. Refunds and payouts always go to the main wallet. The bot can never send funds anywhere else.
-- The page shows a live checklist: bot added, gas, stake money.
-- The tab must stay open, as with manual play.
-
-## Notes and limits
-
-- The operator trusts public candle data to post results. This is by design for the prototype.
-- The game wallet key is kept in the browser's local storage, for the testnet only.
-- The bot runs in an open tab. It is not a hosted service and nobody else holds your key.
+A step-by-step script for recording the demo is in `DEMO.md`.
 
 ## X posts
 
-Short drafts, edit and post as you like. Tag @DreamDEXSomnia.
+Short drafts, edit and post as you like. Tag @DreamDEXSomnia. Do not include contract addresses or keys.
 
-1. Built Perp Tug of War on @DreamDEXSomnia: Bulls vs Bears on real perps. Stake $10, open a real order, and the side the price moves toward takes the pool. Leverage never decides the winner.
-2. Pick your side, pick your leverage, then watch the rope move with the real price. 3D arena, live chart, real positions on the Hideki testnet. #Somnia
-3. Leaderboard from real dreamDEX traders, and you can mirror a leader while the tab is open. Feedback for the team: delegated order placement would unlock true copy trading.
+1. Built Perp Tug of War on @DreamDEXSomnia: you sit in a 3D room, get randomly drafted as a Bull or a Bear, and trade real perps from your own on-chain vault. Team with the better average gain wins the pot. #Somnia
+2. Teams can be 15 v 5 and it still works: scoring is average gain per head, computed on chain from dreamDEX margin equity. Anyone can settle and check it.
+3. Bring your own bot: paste a script in the app and it trades real orders from your vault, sandboxed so it never sees your key.

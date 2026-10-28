@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import dynamic from 'next/dynamic';
 import type { GameWallet } from '@/lib/useGameWallet';
 import type { LiveMarkets } from '@/lib/useLiveMarkets';
@@ -56,6 +56,7 @@ export function SquadsGame({ wallet, live }: { wallet: GameWallet; live: LiveMar
 
   useEffect(() => { const t = setInterval(() => setNow(nowSec()), 1000); return () => clearInterval(t); }, []);
 
+
   const reload = useCallback(async () => {
     if (!squadsEnabled) return;
     try {
@@ -101,6 +102,18 @@ export function SquadsGame({ wallet, live }: { wallet: GameWallet; live: LiveMar
   useEffect(() => { if (params) setPositionUsd((x) => (x === 50 ? params.bankrollUsd : x)); }, [params?.bankrollUsd]);
 
   const key = wallet.key as Hex | null;
+
+  // Settling is open to anyone: the first player's open tab settles an ended match by itself (the Settle button stays as a backup).
+  const autoSettled = useRef<string | null>(null);
+  useEffect(() => {
+    if (!match || !key || !mine || match.phase !== 'ended') return;
+    const id = `${ticker}-${match.number}`;
+    if (autoSettled.current === id) return;
+    autoSettled.current = id;
+    settleSquad(key, ticker, match.number)
+      .then(() => reload())
+      .catch(() => { setTimeout(() => { if (autoSettled.current === id) autoSettled.current = null; }, 15_000); });
+  }, [match?.phase, match?.number, key, !!mine, Math.floor(now / 15)]);
 
   const sizeError = (() => {
     const t = sizeText.trim();

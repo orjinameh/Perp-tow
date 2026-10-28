@@ -80,6 +80,15 @@ export default function TugOfWarApp() {
 
   // Modal and Sound states
   const [isSpecsOpen, setIsSpecsOpen] = useState<boolean>(false);
+  // first visit: show the plain-language rules once
+  useEffect(() => {
+    try {
+      if (!window.localStorage.getItem('tow.seenRules')) {
+        window.localStorage.setItem('tow.seenRules', '1');
+        setIsSpecsOpen(true);
+      }
+    } catch { /* storage unavailable: skip the intro */ }
+  }, []);
   const [isMuted, setIsMuted] = useState<boolean>(false);
 
   // Live prices, candles, volume and open interest from the dreamDEX indexer
