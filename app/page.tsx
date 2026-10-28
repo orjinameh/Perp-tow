@@ -21,6 +21,7 @@ import { useMatches } from '@/lib/useMatches';
 import { draftMatch, nextMatchNumber } from '@/lib/matches';
 import type { EntryReceipt } from '@/lib/trading';
 import { WalletPanel } from '@/components/WalletPanel';
+import { SquadsGame } from '@/components/SquadsGame';
 import { useAutoTrade } from '@/lib/useAutoTrade';
 import { CORE_RULES } from '@/lib/payout';
 import { MATCH_SIZE, LEVERAGE as LEVERAGE_DEFAULT, leverageChoices } from '@/lib/gameTag';
@@ -41,10 +42,8 @@ const World3D = dynamic(() => import('@/components/World3D').then((m) => m.World
 });
 
 export default function TugOfWarApp() {
-  // When the squads game is deployed it is the main game: random teams, free trading. `/?classic=1` keeps the old one.
-  useEffect(() => {
-    if (process.env.NEXT_PUBLIC_SQUADS_ADDRESS && !new URLSearchParams(window.location.search).has('classic')) window.location.replace('/squads');
-  }, []);
+  // When the squads contract is deployed, the squads game replaces the old direction-based flow below.
+  const squadsOn = !!process.env.NEXT_PUBLIC_SQUADS_ADDRESS;
 
   // Step 1 Initial UI state according to specification
   const [screen, setScreen] = useState<PrototypeScreen>('lobby');
@@ -214,8 +213,8 @@ export default function TugOfWarApp() {
         onOpenSpecs={() => setIsSpecsOpen(true)}
         isMuted={isMuted}
         onToggleMute={handleToggleMute}
-        view={view}
-        onToggleView={() => switchView(view === 'world' ? 'classic' : 'world')}
+        view={squadsOn ? undefined : view}
+        onToggleView={squadsOn ? undefined : () => switchView(view === 'world' ? 'classic' : 'world')}
         onOpenLeaders={live.status === 'ok' ? () => setLeadersOpen(true) : undefined}
         onOpenHistory={live.status === 'ok' ? () => setHistoryOpen(true) : undefined}
       />
@@ -238,7 +237,7 @@ export default function TugOfWarApp() {
       {worldNote && <div className="border-b border-rose-500/30 bg-rose-950/30 px-4 py-2 text-center text-xs text-rose-200">{worldNote}</div>}
 
       {/* Step Flow Ribbon Indicator */}
-      {view === 'classic' && <FlowBreadcrumbs
+      {!squadsOn && view === 'classic' && <FlowBreadcrumbs
         currentScreen={screen}
         selectedAsset={selectedAsset}
         selectedSide={selectedSide}
@@ -247,7 +246,8 @@ export default function TugOfWarApp() {
       />}
 
       {/* Dynamic Screen Viewport */}
-      {worldActive && (
+      {squadsOn && <SquadsGame wallet={wallet} live={live} />}
+      {!squadsOn && worldActive && (
         <div className="relative h-[calc(100dvh-9rem)] min-h-[460px] w-full [@media(pointer:coarse)_and_(orientation:landscape)_and_(max-height:520px)]:fixed [@media(pointer:coarse)_and_(orientation:landscape)_and_(max-height:520px)]:inset-0 [@media(pointer:coarse)_and_(orientation:landscape)_and_(max-height:520px)]:z-40 [@media(pointer:coarse)_and_(orientation:landscape)_and_(max-height:520px)]:h-auto [@media(pointer:coarse)_and_(orientation:landscape)_and_(max-height:520px)]:min-h-0">
           <button
             data-world-ui
@@ -379,7 +379,7 @@ export default function TugOfWarApp() {
         </div>
       )}
 
-      {!worldActive && (
+      {!squadsOn && !worldActive && (
       <main className="flex-1 pb-16">
         {live.status === 'loading' && (
           <LobbySkeleton />
@@ -471,7 +471,7 @@ export default function TugOfWarApp() {
       )}
 
       {/* Footer Notice */}
-      {!worldActive && (
+      {!squadsOn && !worldActive && (
       <footer className="border-t border-zinc-900 bg-zinc-950/80 py-6 text-center text-xs text-zinc-500">
         <div className="mx-auto max-w-7xl px-4 flex flex-col sm:flex-row items-center justify-between gap-4">
           <div className="flex items-center gap-2">
