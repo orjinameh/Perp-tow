@@ -49,9 +49,9 @@ export interface SquadArenaView {
   left: number; // seconds left in the current phase
   size: number;
   players: { team: 0 | 1 | 2; confirmed: boolean; isMe: boolean }[];
-  red: number | null; // live team scores in USDso
-  blue: number | null;
-  result: number; // 0 pending, 1 Red, 2 Blue, 3 refund
+  bulls: number | null; // live team scores in USDso
+  bears: number | null;
+  result: number; // 0 pending, 1 Bulls, 2 Bears, 3 refund
 }
 
 interface Trigger {
