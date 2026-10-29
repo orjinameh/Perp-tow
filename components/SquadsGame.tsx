@@ -95,12 +95,23 @@ export function SquadsGame({ wallet, live }: { wallet: GameWallet; live: LiveMar
   // Live team scores straight from the contract: the same numbers settle() will use.
   useEffect(() => {
     if (!match || !match.lockAt) { setChain(null); return; }
+    const saved = `tow-final-${ticker}-${match.number}`;
+    // After the result is posted the vaults are paid out and their equity drops to zero, so the contract's live numbers
+    // would read -50 for everyone. Show the last real scores seen while the match was live instead, or none.
+    if (['settled', 'cancelled'].includes(match.phase)) {
+      try { const v = window.localStorage.getItem(saved); setChain(v ? (JSON.parse(v) as { bulls: number; bears: number }) : null); } catch { setChain(null); }
+      return;
+    }
     let stop = false;
-    const go = () => squadScores(ticker, match.number).then((v) => { if (!stop) { setChain(v); setLiveWarn(null); } }).catch(() => { if (!stop) setLiveWarn('Live scores are not updating right now (the chain connection is slow). Trying again.'); });
+    const go = () => squadScores(ticker, match.number).then((v) => {
+      if (stop) return;
+      setChain(v); setLiveWarn(null);
+      try { window.localStorage.setItem(saved, JSON.stringify(v)); } catch { /* storage unavailable */ }
+    }).catch(() => { if (!stop) setLiveWarn('Live scores are not updating right now (the chain connection is slow). Trying again.'); });
     void go();
     const t = setInterval(go, 6000);
     return () => { stop = true; clearInterval(t); };
-  }, [match?.number, match?.lockAt, ticker]);
+  }, [match?.number, match?.lockAt, match?.phase, ticker]);
 
   useEffect(() => {
     setClaimed(false);

@@ -887,7 +887,7 @@ export const World3D: React.FC<Props> = (props) => {
       roomShell(w, d, 0x161d30, 0x0f1628);
       const ROPE_SX = 2.2; // the rope model is 8 long: stretched to 17.6 so up to ten columns can reach it
       const ROPE_SY = 1.15;
-      const ROPE_DROP = 1.0; // the middle of the rope lies near the floor; the ends rise to the pullers' hands
+      const ROPE_DROP = 1.03; // the middle of the rope lies near the floor; the ends rise to the pullers' hands
       const SEG = 0.5 * ROPE_SX; // world length of one rope bone
       const MAXSEATS = 20;
 
@@ -1017,6 +1017,8 @@ export const World3D: React.FC<Props> = (props) => {
         rig: Rig | null;
         phase: number;
         stool: THREE.Mesh;
+        chair: THREE.Group;
+        human: Character | null;
         sx: number;
         x: number;
         z: number;
@@ -1053,8 +1055,23 @@ export const World3D: React.FC<Props> = (props) => {
           const stool = new THREE.Mesh(new THREE.CylinderGeometry(0.34, 0.3, 1, 18), stdMat(0x475569, 0.7));
           stool.visible = false;
           holder.add(stool);
+          // a simple chair: the person sits in it while the lobby waits
+          const chair = new THREE.Group();
+          const wood = stdMat(0x8b6b4a, 0.85);
+          const seat = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.07, 0.6), wood);
+          seat.position.set(0, 0.5, -0.02);
+          const back = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.62, 0.06), wood);
+          back.position.set(0, 0.84, -0.32);
+          chair.add(seat, back);
+          for (const lx of [-0.26, 0.26]) for (const lz of [-0.28, 0.24]) {
+            const leg = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.5, 0.06), wood);
+            leg.position.set(lx, 0.25, lz);
+            chair.add(leg);
+          }
+          chair.visible = false;
+          holder.add(chair);
           const col = i >> 1;
-          return { holder, ring, peg, pegMat, model: null, rig: null, stool, phase: i * 0.7, sx, x: sx * (1.5 + col * 0.95), z: i % 2 === 0 ? -0.45 : 0.45, on: false };
+          return { holder, ring, peg, pegMat, model: null, rig: null, stool, chair, human: null, phase: i * 0.7, sx, x: sx * (1.5 + col * 0.95), z: i % 2 === 0 ? -0.45 : 0.45, on: false };
         });
       const bulls = mkPool(-1);
       const bears = mkPool(1);
@@ -1068,14 +1085,17 @@ export const World3D: React.FC<Props> = (props) => {
       });
 
       // rope sag: the middle hangs, tension straightens it
-      let sagA = 0.06;
+      // The rope lies near the floor in the middle and climbs to the pullers' hands within two bones, then runs level.
+      // `ropeLift` is how steeply it climbs: a slack rope lies lower, a taut one rises.
+      let ropeLift = 0.9;
+      const bend = (k: number) => (k === 0 ? ropeLift : k === 2 ? -ropeLift : 0);
       const ropeYAt = (xl: number) => {
         let ang = 0;
         let y = 1;
         let rem = Math.abs(xl) / SEG;
         for (let k = 0; k < 8 && rem > 0; k++) {
           const step = Math.min(1, rem);
-          ang += sagA;
+          ang += bend(k);
           y += 0.5 * Math.sin(ang) * step;
           rem -= step;
         }
@@ -1154,6 +1174,7 @@ export const World3D: React.FC<Props> = (props) => {
             if (!pl) return;
             pu.holder.position.set(pu.x, 0, pu.z);
             pu.ring.position.set(pu.x, 0.04, pu.z);
+            if (!pu.human) { pu.human = makeCharacter('human'); pu.human.group.visible = false; pu.holder.add(pu.human.group); }
             (pu.ring.material as THREE.MeshBasicMaterial).color.setHex(pl.isMe ? 0xfacc15 : pi === 0 ? 0x10b981 : 0xf43f5e);
             const t = pu.sx < 0 ? 1 : 2;
             const base = tpl[t];
@@ -1204,29 +1225,42 @@ export const World3D: React.FC<Props> = (props) => {
         const bias = Math.max(-1, Math.min(1, gap / Math.max(0.5, A?.scale ?? 5))); // +1 Bulls, -1 Bears
         const trading = A?.phase === 'trading';
         // a real rope: a spring pulled toward where the score says, with damping, and the teams heave in surges
-        if (A && A.kick > lastKick) { if (lastKick >= 0 && A.myTeam) rv += (A.myTeam === 1 ? -1 : 1) * 1.6; lastKick = A.kick; }
+        if (A && A.kick > lastKick) { if (lastKick >= 0 && A.myTeam) rv += (A.myTeam === 1 ? -1 : 1) * 0.5; lastKick = A.kick; }
         if (!A) lastKick = -1; else if (lastKick < 0) lastKick = A.kick;
-        const heave = trading ? Math.sin(t * 2.3) * 0.09 + Math.sin(t * 5.1) * 0.03 : 0;
+        const heave = 0; // the rope only ever moves toward whoever is winning: no back-and-forth
         const dtc = Math.min(dt, 0.05);
-        rv += (7 * (-bias * 3 + heave - ropeOffset) - 3.6 * rv) * dtc;
+        rv += (4 * (-bias * 3 + heave - ropeOffset) - 4.2 * rv) * dtc; // overdamped: it glides, never rocks
         ropeOffset += rv * dtc;
         team.position.x = ropeOffset;
         // while the lobby is open the players sit; when the match runs they stand and pull
         const seatedNow = A?.phase === 'filling' || A?.phase === 'confirming' || A?.phase === 'finishable';
         const intensity = trading ? 0.4 + Math.abs(bias) * 0.6 : A?.phase === 'filling' ? 0.15 : 0.1;
-        sagA = 0.03 + 0.05 * (1 - Math.min(1, intensity + Math.min(0.3, Math.abs(rv) * 0.15))); // tension straightens the rope
+        ropeLift = 0.55 + 0.4 * Math.min(1, intensity + Math.abs(bias) * 0.3); // tension lifts the rope off the floor
         if (ropeBones) {
-          ropeBones.l.forEach((b) => { b.rotation.z = -sagA; });
-          ropeBones.r.forEach((b) => { b.rotation.z = sagA; });
+          ropeBones.l.forEach((b, k) => { b.rotation.z = -bend(k); });
+          ropeBones.r.forEach((b, k) => { b.rotation.z = bend(k); });
         }
         team.updateMatrixWorld(true);
         [bulls, bears].forEach((pool, pi) =>
           pool.forEach((pu) => {
-            if (!pu.on || !pu.rig) return;
+            if (!pu.on) return;
+            // waiting in the lobby: a person sits on a chair. Once the match runs, the animal stands and pulls.
+            if (pu.human) { pu.human.group.visible = seatedNow; pu.chair.visible = seatedNow; }
+            if (pu.model) pu.model.visible = !seatedNow;
+            pu.peg.visible = !pu.rig && !seatedNow;
+            pu.stool.visible = false;
+            if (seatedNow && pu.human) {
+              const h = pu.human;
+              h.group.position.set(0, 0.5 - 0.92 + 0.02, -0.04);
+              h.legL.rotation.x = -1.4; h.legR.rotation.x = -1.4;
+              h.armL.rotation.x = -0.7; h.armR.rotation.x = -0.7;
+              h.group.rotation.x = Math.sin(t * 1.3 + pu.phase) * 0.012;
+              return;
+            }
+            if (!pu.rig) return;
             const winning = pi === 0 ? bias > 0.05 : bias < -0.05;
             const losing = pi === 0 ? bias < -0.05 : bias > 0.05;
             const rg = pu.rig;
-            pu.stool.visible = seatedNow;
             if (seatedNow) {
               // thighs forward, shins down, hands resting on the knees
               rg.hips.position.y = rg.hipsY - rg.thigh;
