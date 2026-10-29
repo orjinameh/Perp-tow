@@ -14,6 +14,8 @@ export interface Activity {
   hash?: string;
   status: ActivityStatus;
   match?: { ticker: string; number: number };
+  /** Set on a trade: what it bought or sold, so one trade can be closed on its own. qty is in the market's smallest unit. */
+  trade?: { side: 'buy' | 'sell'; qty: string; usd: number; closed?: boolean };
 }
 
 const KEY = 'tow-activity-v1';
@@ -46,4 +48,16 @@ export function readActivity(signer: string | null | undefined): Activity[] {
   if (typeof window === 'undefined' || !signer) return [];
   const s = signer.toLowerCase();
   return readAll().filter((a) => a.signer === s);
+}
+
+/** Changes one saved entry (for example to mark a trade as closed). */
+export function updateActivity(id: string, patch: Partial<Activity>) {
+  if (typeof window === 'undefined') return;
+  try {
+    const all = readAll().map((a) => (a.id === id ? { ...a, ...patch } : a));
+    window.localStorage.setItem(KEY, JSON.stringify(all));
+    window.dispatchEvent(new Event(ACTIVITY_EVENT));
+  } catch {
+    /* ignore */
+  }
 }

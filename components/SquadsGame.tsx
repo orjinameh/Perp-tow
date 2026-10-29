@@ -9,7 +9,8 @@ import {
   SquadMatch, SquadParams, TEAM_NAME, claimSquad, confirmSquad, enterSquad, finishSquad, leaveSquad, releaseSquad, vaultAddress,
   loadSquadMatches, nextSquadNumber, readSquadParams, settleSquad, squadClaimed, squadScores, squadsEnabled,
 } from '@/lib/squads';
-import { vaultOrder, vaultClose, vaultPosition } from '@/lib/trading';
+import { vaultOrder, vaultClose, vaultPosition, vaultWithdrawable, vaultCloseTrade } from '@/lib/trading';
+import { ACTIVITY_EVENT, readActivity } from '@/lib/activity';
 import { nowSec } from '@/lib/clock';
 import type { GameMatch } from '@/lib/types';
 import { Modal, btnGhost, btnPrimary } from '@/components/Modal';
@@ -49,6 +50,9 @@ export function SquadsGame({ wallet, live }: { wallet: GameWallet; live: LiveMar
   const [selected, setSelected] = useState<number | null>(null);
   const [chain, setChain] = useState<{ bulls: number; bears: number } | null>(null);
   const [claimed, setClaimed] = useState(false);
+  const [leftover, setLeftover] = useState(0);
+  const [actTick, setActTick] = useState(0);
+  useEffect(() => { const f = () => setActTick((x) => x + 1); window.addEventListener(ACTIVITY_EVENT, f); return () => window.removeEventListener(ACTIVITY_EVENT, f); }, []);
   const [error, setError] = useState<string | null>(null);
   const [liveWarn, setLiveWarn] = useState<string | null>(null); // background reads that keep failing
   const [loaded, setLoaded] = useState(false); // the first read of the rooms has finished (even if it failed)
@@ -119,6 +123,16 @@ export function SquadsGame({ wallet, live }: { wallet: GameWallet; live: LiveMar
     const t = setInterval(go, 6000);
     return () => { stop = true; clearInterval(t); };
   }, [vault, match?.phase, ticker]);
+  // What is still sitting in my vault after the match (so the release button only shows when there is something to release).
+  useEffect(() => {
+    setLeftover(0);
+    if (!vault || !match || !['settled', 'cancelled'].includes(match.phase)) return;
+    let stop = false;
+    const go = () => vaultWithdrawable(vault, ticker).then((w) => { if (!stop) setLeftover(w); }).catch(() => {});
+    void go();
+    const t = setInterval(go, 8000);
+    return () => { stop = true; clearInterval(t); };
+  }, [vault, match?.phase, match?.number, ticker, claimed]);
   useEffect(() => { if (params) setPositionUsd((x) => (x === 50 ? params.bankrollUsd : x)); }, [params?.bankrollUsd]);
 
   const key = wallet.key as Hex | null;
@@ -204,7 +218,17 @@ export function SquadsGame({ wallet, live }: { wallet: GameWallet; live: LiveMar
   const confirm = (m: SquadMatch) => key && act('Confirming', ['Confirm'], () => confirmSquad(key, ticker, m.number, me as Hex));
   const finish = (m: SquadMatch) => key && act('Locking the match', ['Lock'], () => finishSquad(key, ticker, m.number));
   const settle = (m: SquadMatch) => key && act('Settling', ['Computing the result on chain'], () => settleSquad(key, ticker, m.number));
-  const claim = (m: SquadMatch) => key && act('Claiming', ['Pay out'], () => claimSquad(key, ticker, m.number, me as Hex));
+  const refreshClaimed = async (m: SquadMatch) => { try { setClaimed(await squadClaimed(ticker, m.number, me as Hex)); } catch { /* the next check will try again */ } };
+  // Close any open position first (it locks part of the bankroll), then pay out, then send the bankroll back.
+  const claim = async (m: SquadMatch) => {
+    if (!key) return;
+    await act('Claiming', ['Closing your position', 'Paying out', 'Sending your bankroll back'], async () => {
+      if (vault && position) { try { await vaultClose(key, vault, ticker); } catch { /* still claim; the leftover can be released after */ } }
+      await claimSquad(key, ticker, m.number, me as Hex);
+      if (vault) { try { if ((await vaultWithdrawable(vault, ticker)) > 0.01) await releaseSquad(key, ticker, m.number, me as Hex); } catch { /* the Release button stays */ } }
+    });
+    await refreshClaimed(m);
+  };
   /** One tap to a game: the fullest open room on this market that has a free seat, or a new room. */
   const quickPlay = () => {
     if (blocked()) return;
@@ -217,7 +241,15 @@ export function SquadsGame({ wallet, live }: { wallet: GameWallet; live: LiveMar
   const openRoomModal = () => { if (blocked()) return; setSizeText(String(Math.min(4, params?.size ?? 4))); setOpenModal(true); };
   const trade = () => key && vault && match && act('Opening your trade', ['Sending order from your vault'], () => vaultOrder(key, vault, ticker, side === 'bulls' ? 'buy' : 'sell', positionUsd, match.number));
   const close = () => key && vault && act('Closing your position', ['Closing'], () => vaultClose(key, vault, ticker));
-  const release = (m: SquadMatch) => key && act('Releasing your bankroll', ['Sending it back'], () => releaseSquad(key, ticker, m.number, me as Hex));
+  const release = async (m: SquadMatch) => {
+    if (!key) return;
+    await act('Releasing your bankroll', ['Closing your position', 'Sending it back'], async () => {
+      if (vault && position) { try { await vaultClose(key, vault, ticker); } catch { /* try the release anyway */ } }
+      await releaseSquad(key, ticker, m.number, me as Hex);
+    });
+    await refreshClaimed(m);
+  };
+  const closeOne = (id: string, side: 'buy' | 'sell', qty: string) => key && vault && match && act('Closing that trade', ['Sending the closing order'], () => vaultCloseTrade(key, vault, ticker, match.number, id, side, qty));
 
   if (!squadsEnabled) {
     return <Shell><p>Squads mode is not switched on: <code>NEXT_PUBLIC_SQUADS_ADDRESS</code> is empty. Run <code>npm run deploy:squads</code>.</p></Shell>;
@@ -269,9 +301,9 @@ export function SquadsGame({ wallet, live }: { wallet: GameWallet; live: LiveMar
             {mine && ['cancelled', 'settled'].includes(match.phase) && !claimed && (
               <button className="border rounded px-3 py-1" onClick={() => claim(match)}>{match.phase === 'cancelled' || match.result === 3 ? 'Claim refund + bankroll' : match.result === mine.team ? 'Claim payout + bankroll' : 'Get my bankroll back'}</button>
             )}
-            {mine && claimed && ['cancelled', 'settled'].includes(match.phase) && <button className="border rounded px-3 py-1" onClick={() => release(match)}>Release leftover bankroll</button>}
+            {mine && claimed && ['cancelled', 'settled'].includes(match.phase) && (leftover > 0.01 || position) && <button className="border rounded px-3 py-1" onClick={() => release(match)}>{position ? 'Close position and release bankroll' : `Release ${leftover.toFixed(2)} USDso bankroll`}</button>}
             {match.phase === 'ended' && <button className="border rounded px-3 py-1" onClick={() => settle(match)}>Settle the result</button>}
-            {claimed && <span className="text-sm">Paid out.</span>}
+            {claimed && !(leftover > 0.01 || position) && <span className="text-sm">All paid out. Nothing left to claim.</span>}
           </div>
 
           {mine && match.phase === 'trading' && market && (
@@ -283,8 +315,23 @@ export function SquadsGame({ wallet, live }: { wallet: GameWallet; live: LiveMar
                 <button className={`border rounded px-3 py-1 ${side === 'bears' ? 'ring-2' : ''}`} onClick={() => setSide('bears')}>Sell</button>
                 <label>Position $<input className="w-20 border rounded px-1 ml-1 bg-transparent" type="number" min={1} value={positionUsd} onChange={(e) => setPositionUsd(Math.max(1, Number(e.target.value)))} /></label>
                 <button className="border rounded px-3 py-1" onClick={trade} disabled={!vault}>Place trade</button>
-                <button className="border rounded px-3 py-1" onClick={close} disabled={!vault || !position}>Close position</button>
+                <button className="border rounded px-3 py-1" onClick={close} disabled={!vault || !position}>Close all</button>
               </div>
+              {(() => {
+                void actTick;
+                const longNow = (position?.size ?? 0) > 0;
+                const mine2 = readActivity(me).filter((a) => a.kind === 'trade' && a.status === 'confirmed' && a.trade && a.match?.ticker === ticker && a.match.number === match.number && position && (a.trade.side === 'buy') === longNow);
+                return mine2.length ? (
+                  <ul className="mt-2 text-sm space-y-1">
+                    {mine2.map((a) => (
+                      <li key={a.id} className="flex items-center justify-between gap-2 border rounded px-2 py-1">
+                        <span>{a.trade!.side === 'buy' ? 'Buy' : 'Sell'} ${a.trade!.usd} <span className="opacity-60 text-xs">{new Date(a.t).toLocaleTimeString()}</span></span>
+                        <button className="border rounded px-2 py-0.5" onClick={() => closeOne(a.id, a.trade!.side, a.trade!.qty)}>Close this trade</button>
+                      </li>
+                    ))}
+                  </ul>
+                ) : null;
+              })()}
               <p className="text-xs opacity-70 mt-2">Trade as often as you like in either direction. Your score is how much your vault's equity changed since the lock, open positions included. Nothing outside the match can change it.</p>
               <BotPanel
                 active={match.phase === 'trading'}
@@ -316,7 +363,7 @@ export function SquadsGame({ wallet, live }: { wallet: GameWallet; live: LiveMar
   const draft: SquadMatch | null = draftNumber ? { id: `${ticker} #${draftNumber}`, ticker, number: draftNumber, size: Math.max(2, Math.min(newSize, params?.size ?? newSize)), players: [], phase: 'filling', firstAt: 0, lockAt: 0, endsAt: 0, lobbyEndsAt: 0, confirmEndsAt: 0, result: 0, bulls: 0, bears: 0 } : null;
   const ticketMatch = ticket === 'new' ? draft : ticket;
   const arena: SquadArenaView | null = match
-    ? { id: match.id, phase: match.phase, left: Math.max(0, left), size: match.size, players: match.players.map((p) => ({ team: p.team, confirmed: p.confirmed, isMe: !!me && p.address.toLowerCase() === me.toLowerCase() })), bulls: chain ? chain.bulls : null, bears: chain ? chain.bears : null, result: match.result }
+    ? { id: match.id, phase: match.phase, left: Math.max(0, left), size: match.size, players: match.players.map((p) => ({ team: p.team, confirmed: p.confirmed, isMe: !!me && p.address.toLowerCase() === me.toLowerCase() })), bulls: chain ? chain.bulls : null, bears: chain ? chain.bears : null, result: match.result, scale: Math.max(2, (params?.bankrollUsd ?? 50) * 0.1), kick: readActivity(me).filter((a) => a.kind === 'trade' && a.status === 'confirmed' && a.match?.ticker === ticker && a.match.number === match.number).length + (void actTick, 0), myTeam: (mine?.team ?? 0) as 0 | 1 | 2 }
     : null;
   const worldView = (
     <div className="relative h-[calc(100dvh-12rem)] min-h-[480px] rounded border overflow-hidden">

@@ -56,6 +56,9 @@ export interface SquadArenaView {
   bulls: number | null; // live team scores in USDso
   bears: number | null;
   result: number; // 0 pending, 1 Bulls, 2 Bears, 3 refund
+  scale: number; // a score gap of this many USDso pulls the rope all the way
+  kick: number; // counts my confirmed trades in this match: each new one makes my team heave
+  myTeam: 0 | 1 | 2;
 }
 
 interface Trigger {
@@ -1189,27 +1192,37 @@ export const World3D: React.FC<Props> = (props) => {
 
       // every frame: the rope slides with the score, sags, and the arms reach its real position
       let ropeOffset = 0;
+      let rv = 0;
+      let lastKick = -1;
       const tmp = new THREE.Vector3();
       frames.push((t, dt) => {
         const A = live.current.arena;
         const hasScores = !!A && A.bulls !== null && A.bears !== null && (A.phase === 'trading' || A.phase === 'ended' || A.phase === 'settled');
         const gap = hasScores ? (A!.bulls as number) - (A!.bears as number) : 0;
-        const bias = Math.max(-1, Math.min(1, gap / 100)); // +1 Bulls, -1 Bears
-        ropeOffset += (-bias * 3 - ropeOffset) * Math.min(1, dt * 1.6);
-        team.position.x = ropeOffset;
+        const bias = Math.max(-1, Math.min(1, gap / Math.max(0.5, A?.scale ?? 5))); // +1 Bulls, -1 Bears
         const trading = A?.phase === 'trading';
+        // a real rope: a spring pulled toward where the score says, with damping, and the teams heave in surges
+        if (A && A.kick > lastKick) { if (lastKick >= 0 && A.myTeam) rv += (A.myTeam === 1 ? -1 : 1) * 1.6; lastKick = A.kick; }
+        if (!A) lastKick = -1; else if (lastKick < 0) lastKick = A.kick;
+        const heave = trading ? Math.sin(t * 2.3) * 0.09 + Math.sin(t * 5.1) * 0.03 : 0;
+        const dtc = Math.min(dt, 0.05);
+        rv += (7 * (-bias * 3 + heave - ropeOffset) - 3.6 * rv) * dtc;
+        ropeOffset += rv * dtc;
+        team.position.x = ropeOffset;
         // while the lobby is open the players sit; when the match runs they stand and pull
         const seatedNow = A?.phase === 'filling' || A?.phase === 'confirming' || A?.phase === 'finishable';
         const intensity = trading ? 0.4 + Math.abs(bias) * 0.6 : A?.phase === 'filling' ? 0.15 : 0.1;
-        sagA = 0.012 + 0.05 * (1 - Math.min(1, intensity));
+        sagA = 0.008 + 0.05 * (1 - Math.min(1, intensity + Math.min(0.3, Math.abs(rv) * 0.15))); // tension straightens the rope
         if (ropeBones) {
           ropeBones.l.forEach((b) => { b.rotation.z = -sagA; });
           ropeBones.r.forEach((b) => { b.rotation.z = sagA; });
         }
         team.updateMatrixWorld(true);
-        [bulls, bears].forEach((pool) =>
+        [bulls, bears].forEach((pool, pi) =>
           pool.forEach((pu) => {
             if (!pu.on || !pu.rig) return;
+            const winning = pi === 0 ? bias > 0.05 : bias < -0.05;
+            const losing = pi === 0 ? bias < -0.05 : bias > 0.05;
             const rg = pu.rig;
             pu.stool.visible = seatedNow;
             if (seatedNow) {
@@ -1234,7 +1247,7 @@ export const World3D: React.FC<Props> = (props) => {
             }
             rg.hips.position.y = rg.hipsY;
             rg.upLegL.rotation.x = 0; rg.upLegR.rotation.x = 0; rg.legL.rotation.x = 0; rg.legR.rotation.x = 0;
-            const lean = 0.1 + 0.16 * intensity + Math.sin(t * 5 + pu.phase) * 0.05 * intensity;
+            const lean = 0.1 + 0.16 * intensity + (winning ? 0.18 * Math.abs(bias) : 0) - (losing ? 0.05 * Math.abs(bias) : 0) + Math.sin(t * 5 + pu.phase) * (0.05 + Math.abs(rv) * 0.04) * intensity;
             rg.spine.rotation.x = -lean * 0.5;
             rg.chest.rotation.x = -lean * 0.5;
             pu.holder.position.y = Math.abs(Math.sin(t * 5 + pu.phase)) * 0.025 * intensity;
@@ -1459,7 +1472,9 @@ export const World3D: React.FC<Props> = (props) => {
         moving = Math.max(0, moving - dt * 8);
       }
       avatarRoot.position.set(pos.x, 0, pos.y);
-      avatar.group.visible = !(spot && !unseated); // my own puller on the rope stands in for me
+      const noHuman = L.room.kind === 'arena' && avatar.form === 'human'; // in a match the only figures are the bulls and bears
+      avatar.group.visible = !(spot && !unseated) && !noHuman; // my own puller on the rope stands in for me
+      shadow.visible = !noHuman;
       avatar.group.rotation.y = facing;
       animateWalk(avatar, tAll, moving);
 

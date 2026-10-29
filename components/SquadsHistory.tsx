@@ -91,7 +91,14 @@ export const SquadsHistory: React.FC<{ wallet: GameWallet; tickers?: string[]; o
     }
   }, [wallet.address, signer, tickers.join(',')]);
 
-  useEffect(() => { if (tab === 'matches') void loadMatches(); }, [tab, loadMatches]);
+  useEffect(() => {
+    if (tab !== 'matches') return;
+    void loadMatches();
+    const t = setInterval(() => void loadMatches(), 15000); // keep results, claims and new matches fresh while this is open
+    const f = () => void loadMatches();
+    window.addEventListener(ACTIVITY_EVENT, f);
+    return () => { clearInterval(t); window.removeEventListener(ACTIVITY_EVENT, f); };
+  }, [tab, loadMatches]);
   // a wallet with no saved transactions (older play, or another browser) starts on its matches, which come from the chain
   const firstLook = React.useRef(true);
   useEffect(() => {

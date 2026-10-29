@@ -3,7 +3,7 @@ import { hidekiTestnet } from '@somnia-chain/markets-sdk/chains';
 import { createPublicClient, createWalletClient, formatEther, formatUnits, http, parseAbi, zeroAddress } from 'viem';
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts';
 import { gql } from './indexer';
-import { logActivity } from './activity';
+import { logActivity, updateActivity } from './activity';
 import { nowSec } from './clock';
 import { PositionSide } from './types';
 import { encodeUserData, LEVERAGE } from './gameTag';
@@ -419,6 +419,7 @@ const VAULT_ABI = parseAbi([
   'function trade(address pool, bool isBid, uint64 userData, uint256 price, uint256 quantity)',
   'function close(address pool, uint256 price)',
 ]);
+const BANK_COLLATERAL_ABI = parseAbi(['function getWithdrawableCollateral(address account) view returns (uint256)']);
 const BANK_POSITION_ABI = parseAbi(['function getPosition(address account, address perpPool) view returns ((int128 size, uint128 avgEntryPrice, int256 entryFundingIndex, uint64 lastUpdatedTimestampNs))']);
 
 async function perpRow(key: Hex, ticker: string): Promise<PerpRow> {
@@ -462,7 +463,7 @@ export async function vaultOrder(key: Hex, vault: Hex, ticker: string, side: 'bu
       logActivity({ signer: wallet.account.address, kind: 'trade', title: `${isBid ? 'Buy' : 'Sell'} $${positionUsd} ${ticker} from your vault`, detail: 'The order reverted on the chain.', hash, status: 'failed', match: { ticker, number: matchNumber } });
       throw new Error('The order reverted on chain.');
     }
-    logActivity({ signer: wallet.account.address, kind: 'trade', title: `${isBid ? 'Bought' : 'Sold'} about $${positionUsd} of ${ticker} from your vault`, hash, status: 'confirmed', match: { ticker, number: matchNumber } });
+    logActivity({ signer: wallet.account.address, kind: 'trade', title: `${isBid ? 'Bought' : 'Sold'} about $${positionUsd} of ${ticker} from your vault`, hash, status: 'confirmed', match: { ticker, number: matchNumber }, trade: { side, qty: quantity.toString(), usd: positionUsd } });
     return hash;
   } catch (e) {
     const err = vaultError(e);
@@ -509,4 +510,49 @@ export async function vaultPosition(vault: Hex, ticker: string): Promise<{ size:
   const p = (await pub.readContract({ address: m.marginBank, abi: BANK_POSITION_ABI, functionName: 'getPosition', args: [vault, m.poolAddress] })) as { size: bigint; avgEntryPrice: bigint };
   if (p.size === 0n) return null;
   return { size: Number(p.size) / 10 ** m.baseDecimals, entry: Number(p.avgEntryPrice) / 1e18 };
+}
+
+/** What is left in a vault's margin account that can be paid out right now (USDso). */
+export async function vaultWithdrawable(vault: Hex, ticker: string): Promise<number> {
+  const rows = (await new SomniaMarkets({ ...baseConfig(), privateKey: generatePrivateKey() }).client.listPerpMarkets()) as unknown as PerpRow[];
+  const m = rows.find((r) => r.baseSymbol === ticker);
+  if (!m) return 0;
+  const pub = createPublicClient({ chain: hidekiTestnet, transport: http(RPC_URL) });
+  const w = (await pub.readContract({ address: m.marginBank, abi: BANK_COLLATERAL_ABI, functionName: 'getWithdrawableCollateral', args: [vault] })) as bigint;
+  return Number(w) / 1e18;
+}
+
+/** Closes ONE earlier trade: an order the other way for just that trade's quantity, never more than the open position. */
+export async function vaultCloseTrade(key: Hex, vault: Hex, ticker: string, matchNumber: number, tradeId: string, side: 'buy' | 'sell', qtyText: string): Promise<string> {
+  const m = await perpRow(key, ticker);
+  const pub = createPublicClient({ chain: hidekiTestnet, transport: http(RPC_URL) });
+  const wallet = createWalletClient({ chain: hidekiTestnet, transport: http(RPC_URL), account: privateKeyToAccount(key) });
+  const pos = (await pub.readContract({ address: m.marginBank, abi: BANK_POSITION_ABI, functionName: 'getPosition', args: [vault, m.poolAddress] })) as { size: bigint };
+  const longNow = pos.size > 0n;
+  if (pos.size === 0n || (side === 'buy') !== longNow) {
+    updateActivity(tradeId, { trade: undefined });
+    throw new Error('That trade is no longer open (your position already changed). Nothing was sent.');
+  }
+  const open = pos.size < 0n ? -pos.size : pos.size;
+  let qty = BigInt(qtyText);
+  if (qty > open) qty = open;
+  const isBid = side === 'sell'; // closing a sale means buying back
+  const mark = BigInt(m.markPrice);
+  const tick = BigInt(m.tickSize);
+  const slipped = isBid ? (mark * (10_000n + SLIPPAGE_BPS)) / 10_000n : (mark * (10_000n - SLIPPAGE_BPS)) / 10_000n;
+  const price = tick > 0n ? (slipped / tick) * tick : slipped;
+  const args = [m.poolAddress, isBid, BigInt(encodeUserData(matchNumber)), price, qty] as const;
+  try {
+    await pub.simulateContract({ address: vault, abi: VAULT_ABI, functionName: 'trade', args, account: wallet.account });
+    const hash = await wallet.writeContract({ address: vault, abi: VAULT_ABI, functionName: 'trade', args });
+    const rc = await pub.waitForTransactionReceipt({ hash });
+    if (rc.status !== 'success') throw new Error('The close reverted on the chain.');
+    updateActivity(tradeId, { trade: undefined });
+    logActivity({ signer: wallet.account.address, kind: 'close', title: `Closed one ${ticker} trade`, hash, status: 'confirmed', match: { ticker, number: matchNumber } });
+    return hash;
+  } catch (e) {
+    const err = vaultError(e);
+    logActivity({ signer: wallet.account.address, kind: 'close', title: `Close one ${ticker} trade`, detail: err.message, status: 'failed', match: { ticker, number: matchNumber } });
+    throw err;
+  }
 }
