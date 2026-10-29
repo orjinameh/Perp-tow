@@ -1,6 +1,6 @@
 import { SomniaMarkets, SOMNIA_HIDEKI_TESTNET_ADDRESSES } from '@somnia-chain/markets-sdk';
 import { hidekiTestnet } from '@somnia-chain/markets-sdk/chains';
-import { createPublicClient, createWalletClient, formatEther, formatUnits, http, parseAbi, zeroAddress } from 'viem';
+import { createPublicClient, encodeFunctionData, createWalletClient, formatEther, formatUnits, http, parseAbi, zeroAddress } from 'viem';
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts';
 import { gql } from './indexer';
 import { logActivity, updateActivity } from './activity';
@@ -554,5 +554,36 @@ export async function vaultCloseTrade(key: Hex, vault: Hex, ticker: string, matc
     const err = vaultError(e);
     logActivity({ signer: wallet.account.address, kind: 'close', title: `Close one ${ticker} trade`, detail: err.message, status: 'failed', match: { ticker, number: matchNumber } });
     throw err;
+  }
+}
+
+/** When a release fails, asks the margin bank directly (as the vault) what it would say, so the real reason is visible. */
+export async function vaultReleaseDiagnosis(vault: Hex, ticker: string): Promise<string> {
+  try {
+    const rows = (await new SomniaMarkets({ ...baseConfig(), privateKey: generatePrivateKey() }).client.listPerpMarkets()) as unknown as PerpRow[];
+    const m = rows.find((r) => r.baseSymbol === ticker);
+    if (!m) return '';
+    const pub = createPublicClient({ chain: hidekiTestnet, transport: http(RPC_URL) });
+    const w = (await pub.readContract({ address: m.marginBank, abi: BANK_COLLATERAL_ABI, functionName: 'getWithdrawableCollateral', args: [vault] })) as bigint;
+    const pos = (await pub.readContract({ address: m.marginBank, abi: BANK_POSITION_ABI, functionName: 'getPosition', args: [vault, m.poolAddress] })) as { size: bigint };
+    const ex = new SomniaMarkets({ ...baseConfig(), privateKey: generatePrivateKey() });
+    let acct = '';
+    try {
+      const a = (await ex.client.getMarginAccount(m.marginBank, vault)) as unknown as { unlockedCollateralBalance?: bigint; lockedCollateral?: bigint };
+      acct = ` unlocked ${Number(a.unlockedCollateralBalance ?? 0n) / 1e18}, locked ${Number(a.lockedCollateral ?? 0n) / 1e18}.`;
+    } catch { /* optional */ }
+    let bankSays = 'accepts a withdrawal';
+    if (w > 0n) {
+      try {
+        await pub.call({ account: vault, to: m.marginBank, data: encodeFunctionData({ abi: parseAbi(['function withdraw(uint256 amount)']), functionName: 'withdraw', args: [w] }) });
+      } catch (e) {
+        const raw = JSON.stringify((e as { cause?: unknown })?.cause ?? '') + String((e as Error).message);
+        const sel = raw.match(/0x[0-9a-fA-F]{8}/)?.[0];
+        bankSays = `refuses a withdrawal of ${Number(w) / 1e18}${sel ? ` (error ${sel})` : ''}`;
+      }
+    }
+    return ` Vault check: withdrawable ${Number(w) / 1e18}, open position size ${pos.size}.${acct} The margin bank ${bankSays}.`;
+  } catch {
+    return '';
   }
 }

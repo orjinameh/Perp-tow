@@ -9,7 +9,7 @@ import {
   SquadMatch, SquadParams, TEAM_NAME, claimSquad, confirmSquad, enterSquad, finishSquad, leaveSquad, releaseSquad, vaultAddress,
   loadSquadMatches, nextSquadNumber, readSquadParams, settleSquad, squadClaimed, squadScores, squadsEnabled,
 } from '@/lib/squads';
-import { vaultOrder, vaultClose, vaultPosition, vaultWithdrawable, vaultCloseTrade } from '@/lib/trading';
+import { vaultReleaseDiagnosis, vaultOrder, vaultClose, vaultPosition, vaultWithdrawable, vaultCloseTrade } from '@/lib/trading';
 import { ACTIVITY_EVENT, readActivity } from '@/lib/activity';
 import { nowSec } from '@/lib/clock';
 import type { GameMatch } from '@/lib/types';
@@ -230,13 +230,25 @@ export function SquadsGame({ wallet, live }: { wallet: GameWallet; live: LiveMar
     await refreshClaimed(m);
   };
   /** One tap to a game: the fullest open room on this market that has a free seat, or a new room. */
-  const quickPlay = () => {
+  const quickPlay = async () => {
     if (blocked()) return;
-    const openRooms = matches
+    // look at every market, not just the one on screen
+    const tickers = live.markets.length ? live.markets.map((m) => m.ticker) : [ticker];
+    const found = (await Promise.all(tickers.map((t) => loadSquadMatches(t, 10).catch(() => [] as SquadMatch[])))).flat();
+    const openRooms = found
       .filter((m) => m.phase === 'filling' && m.players.length < (m.size || 0) && !(me && m.players.some((p) => p.address.toLowerCase() === me.toLowerCase())))
       .sort((a, b) => b.players.length - a.players.length);
-    if (room.kind === 'hub') setRoom({ kind: 'market', ticker });
-    if (openRooms[0]) { setSelected(openRooms[0].number); setTicket(openRooms[0]); } else openRoomModal();
+    const best = openRooms[0];
+    if (best) {
+      const t = best.ticker;
+      setTicker(t);
+      if (room.kind === 'hub') setRoom({ kind: 'market', ticker: t });
+      setSelected(best.number);
+      setTicket(best);
+    } else {
+      if (room.kind === 'hub') setRoom({ kind: 'market', ticker });
+      openRoomModal();
+    }
   };
   const openRoomModal = () => { if (blocked()) return; setSizeText(String(Math.min(4, params?.size ?? 4))); setOpenModal(true); };
   const trade = () => key && vault && match && act('Opening your trade', ['Sending order from your vault'], () => vaultOrder(key, vault, ticker, side === 'bulls' ? 'buy' : 'sell', positionUsd, match.number));
@@ -245,7 +257,7 @@ export function SquadsGame({ wallet, live }: { wallet: GameWallet; live: LiveMar
     if (!key) return;
     await act('Releasing your bankroll', ['Closing your position', 'Sending it back'], async () => {
       if (vault && position) { try { await vaultClose(key, vault, ticker); } catch { /* try the release anyway */ } }
-      await releaseSquad(key, ticker, m.number, me as Hex);
+      try { await releaseSquad(key, ticker, m.number, me as Hex); } catch (e) { throw new Error(((e as Error).message ?? 'Release failed.') + (vault ? await vaultReleaseDiagnosis(vault, ticker) : '')); }
     });
     await refreshClaimed(m);
   };
@@ -353,6 +365,9 @@ export function SquadsGame({ wallet, live }: { wallet: GameWallet; live: LiveMar
   ) : null;
 
 
+  // Matches that are over and fully paid out leave the 3D hall; one I still have to claim or release stays until I do.
+  const stillMine = (m: SquadMatch) => !['settled', 'cancelled', 'ended'].includes(m.phase) || (m.number === match?.number && !!mine && (!claimed || leftover > 0.01 || !!position));
+  const hallMatches = matches.filter(stillMine);
   const toGame = (m: SquadMatch): GameMatch => ({
     id: m.id, market: m.ticker as GameMatch['market'], bulls: 0, bears: 0, total: m.players.length, requiredPlayers: m.size, size: m.size,
     slotsRemaining: Math.max(0, m.size - m.players.length), entryFee: params?.stakeUsd ?? 10,
@@ -376,7 +391,7 @@ export function SquadsGame({ wallet, live }: { wallet: GameWallet; live: LiveMar
         frozen={false}
         squads
         arena={arena}
-        matches={matches.map(toGame)}
+        matches={hallMatches.map(toGame)}
         selectedMatch={ticketMatch ? toGame(ticketMatch) : null}
         ticketOpen={ticket !== null}
         onEnterMarket={(t) => { setTicker(t); setSelected(null); setTicket(null); setRoom({ kind: 'market', ticker: t }); }}
@@ -460,7 +475,7 @@ export function SquadsGame({ wallet, live }: { wallet: GameWallet; live: LiveMar
         <button className="border rounded px-3 py-1" onClick={() => openRoomModal()} disabled={!key || !me}>Open a new match (${params?.stakeUsd ?? 10} stake)</button>
       </div>
       <div className="mb-4">
-        <Hall matches={matches} size={params?.size ?? 4} me={me} now={now} selected={match} onJoinRing={() => setPicker(true)} onOpenRing={() => openRoomModal()} />
+        <Hall matches={hallMatches} size={params?.size ?? 4} me={me} now={now} selected={match} onJoinRing={() => setPicker(true)} onOpenRing={() => openRoomModal()} />
       </div>
       {view === 'screens' && picker && (
         <div className="fixed inset-0 z-[96] bg-black/60 overflow-y-auto overscroll-contain" data-world-ui onClick={() => setPicker(false)}>

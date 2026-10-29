@@ -887,6 +887,7 @@ export const World3D: React.FC<Props> = (props) => {
       roomShell(w, d, 0x161d30, 0x0f1628);
       const ROPE_SX = 2.2; // the rope model is 8 long: stretched to 17.6 so up to ten columns can reach it
       const ROPE_SY = 1.15;
+      const ROPE_DROP = 1.0; // the middle of the rope lies near the floor; the ends rise to the pullers' hands
       const SEG = 0.5 * ROPE_SX; // world length of one rope bone
       const MAXSEATS = 20;
 
@@ -918,14 +919,15 @@ export const World3D: React.FC<Props> = (props) => {
       add(team);
       const ropeGroup = new THREE.Group();
       ropeGroup.scale.set(ROPE_SX, ROPE_SY, ROPE_SY);
+      ropeGroup.position.y = -ROPE_DROP;
       team.add(ropeGroup);
       // plain stand-in until the model is loaded (or if it cannot be)
       const plainRope = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, SEG * 16, 8), stdMat(0xc9a66b, 0.95));
       plainRope.rotation.z = Math.PI / 2;
-      plainRope.position.y = ROPE_SY;
+      plainRope.position.y = 0.3;
       team.add(plainRope);
       const plainFlag = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.4, 0.08), stdMat(0xdc2626, 0.5));
-      plainFlag.position.y = ROPE_SY - 0.3;
+      plainFlag.position.y = 0.4;
       team.add(plainFlag);
       let ropeBones: { l: THREE.Object3D[]; r: THREE.Object3D[] } | null = null as { l: THREE.Object3D[]; r: THREE.Object3D[] } | null;
       let sig = '';
@@ -1066,7 +1068,7 @@ export const World3D: React.FC<Props> = (props) => {
       });
 
       // rope sag: the middle hangs, tension straightens it
-      let sagA = 0.05;
+      let sagA = 0.06;
       const ropeYAt = (xl: number) => {
         let ang = 0;
         let y = 1;
@@ -1077,7 +1079,7 @@ export const World3D: React.FC<Props> = (props) => {
           y += 0.5 * Math.sin(ang) * step;
           rem -= step;
         }
-        return y * ROPE_SY;
+        return Math.max(0.08, y * ROPE_SY - ROPE_DROP);
       };
       const aim = (bone: THREE.Object3D, rest: THREE.Vector3, targetWorld: THREE.Vector3) => {
         const par = bone.parent;
@@ -1212,7 +1214,7 @@ export const World3D: React.FC<Props> = (props) => {
         // while the lobby is open the players sit; when the match runs they stand and pull
         const seatedNow = A?.phase === 'filling' || A?.phase === 'confirming' || A?.phase === 'finishable';
         const intensity = trading ? 0.4 + Math.abs(bias) * 0.6 : A?.phase === 'filling' ? 0.15 : 0.1;
-        sagA = 0.008 + 0.05 * (1 - Math.min(1, intensity + Math.min(0.3, Math.abs(rv) * 0.15))); // tension straightens the rope
+        sagA = 0.03 + 0.05 * (1 - Math.min(1, intensity + Math.min(0.3, Math.abs(rv) * 0.15))); // tension straightens the rope
         if (ropeBones) {
           ropeBones.l.forEach((b) => { b.rotation.z = -sagA; });
           ropeBones.r.forEach((b) => { b.rotation.z = sagA; });
