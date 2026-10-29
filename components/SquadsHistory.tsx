@@ -3,7 +3,8 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import type { GameWallet } from '@/lib/useGameWallet';
 import { ACTIVITY_EVENT, Activity, readActivity } from '@/lib/activity';
-import { TEAM_NAME, SquadMatch, claimSquad, loadSquadMatches, nextSquadNumber, squadClaimed } from '@/lib/squads';
+import { TEAM_NAME, SquadMatch, claimSquad, loadSquadMatches, nextSquadNumber, releaseSquad, squadClaimed, vaultAddress } from '@/lib/squads';
+import { vaultReleaseDiagnosis, vaultClose, vaultPosition } from '@/lib/trading';
 import { Spinner } from '@/components/ProgressModal';
 
 const EXPLORER = 'https://explorer.testnet.somnia.network/tokyo/tx/';
@@ -71,8 +72,9 @@ export const SquadsHistory: React.FC<{ wallet: GameWallet; tickers?: string[]; o
       for (let i = 0; i < list.length; i += 6) {
         await Promise.all(list.slice(i, i + 6).map(async (ticker) => {
           try {
-            if ((await nextSquadNumber(ticker)) <= 1) return; // no match was ever opened on this market
-            const all = await loadSquadMatches(ticker);
+            const next = await nextSquadNumber(ticker);
+            if (next <= 1) return; // no match was ever opened on this market
+            const all = await loadSquadMatches(ticker, Math.min(300, next)); // every match, not just the latest few
             for (const m of all) {
               if (!m.players.some((p) => p.address.toLowerCase() === wallet.address!.toLowerCase())) continue;
               const claimed = await squadClaimed(ticker, m.number, wallet.address as `0x${string}`).catch(() => false);
@@ -115,6 +117,25 @@ export const SquadsHistory: React.FC<{ wallet: GameWallet; tickers?: string[]; o
       void loadMatches();
     } catch (e) {
       setNote(`${r.id}: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setActing(null);
+    }
+  };
+
+  const release = async (r: Row) => {
+    if (!wallet.key || !wallet.address) { setNote('Unlock your wallet to release.'); return; }
+    setActing(r.id);
+    setNote(null);
+    let vault: `0x${string}` | null = null;
+    try {
+      vault = await vaultAddress(r.ticker, r.number, wallet.address);
+      if (!vault) throw new Error('No vault was found for this match.');
+      if (await vaultPosition(vault, r.ticker).catch(() => null)) { try { await vaultClose(wallet.key, vault, r.ticker); } catch { /* try the release anyway */ } }
+      await releaseSquad(wallet.key, r.ticker, r.number, wallet.address as `0x${string}`);
+      setNote(`${r.id}: bankroll released to your wallet.`);
+      void loadMatches();
+    } catch (e) {
+      setNote(`${r.id}: ${e instanceof Error ? e.message : String(e)}${vault ? await vaultReleaseDiagnosis(vault, r.ticker) : ''}`);
     } finally {
       setActing(null);
     }
@@ -177,7 +198,8 @@ export const SquadsHistory: React.FC<{ wallet: GameWallet; tickers?: string[]; o
                       {acting === r.id ? 'Sending…' : 'Claim'}
                     </button>
                   )}
-                  {r.claimed && <span className="text-zinc-500">claimed</span>}
+                  {r.claimable && r.claimed && <button onClick={() => release(r)} disabled={acting !== null} className="ml-2 rounded-lg border border-zinc-600 px-3 py-1.5 text-xs font-semibold text-zinc-200 hover:bg-zinc-800 disabled:opacity-50">{acting === r.id ? 'Sending…' : 'Release bankroll'}</button>}
+                  {r.claimed && <span className="text-zinc-500"> claimed</span>}
                 </div>
               </div>
             ))}
