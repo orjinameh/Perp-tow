@@ -86,7 +86,7 @@ export const AlgorithmSafeguardsModal: React.FC<AlgorithmSafeguardsModalProps> =
         </div>
 
         <div className="space-y-6 p-6 text-sm text-zinc-300">
-          <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/5 p-4 text-xs leading-relaxed text-emerald-100">
+          <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/5 p-4 text-xs leading-relaxed text-emerald-200">
             <b>In one minute:</b> you join a room, you are randomly made a Bull or a Bear, and everyone trades real perps with the same play money. The team whose players gained more on average wins the other team&apos;s stakes. Testnet only, nothing here is real money.
           </div>
 
