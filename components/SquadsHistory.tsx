@@ -4,7 +4,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import type { GameWallet } from '@/lib/useGameWallet';
 import { ACTIVITY_EVENT, Activity, readActivity } from '@/lib/activity';
 import { TEAM_NAME, SquadMatch, claimSquad, loadSquadMatches, nextSquadNumber, releaseSquad, squadClaimed, vaultAddress } from '@/lib/squads';
-import { vaultReleaseDiagnosis, vaultClose, vaultPosition } from '@/lib/trading';
+import { vaultReleaseDiagnosis, vaultClose, vaultPosition, vaultWithdrawable } from '@/lib/trading';
 import { Spinner } from '@/components/ProgressModal';
 
 const EXPLORER = 'https://explorer.testnet.somnia.network/tokyo/tx/';
@@ -12,7 +12,7 @@ const when = (t: number) => new Date(t).toLocaleString([], { month: 'short', day
 const tone: Record<Activity['status'], string> = { confirmed: 'text-emerald-300', failed: 'text-rose-300', 'not sent': 'text-amber-300' };
 const label: Record<Activity['status'], string> = { confirmed: 'confirmed', failed: 'failed on chain', 'not sent': 'not sent' };
 
-interface Row { ticker: string; number: number; id: string; team: 0 | 1 | 2; text: string; tone: string; claimable: boolean; claimed: boolean }
+interface Row { ticker: string; number: number; id: string; team: 0 | 1 | 2; text: string; tone: string; claimable: boolean; claimed: boolean; leftover: number }
 
 function describe(m: SquadMatch, me: string, claimed: boolean): Row {
   const mine = m.players.find((p) => p.address.toLowerCase() === me.toLowerCase());
@@ -30,7 +30,7 @@ function describe(m: SquadMatch, me: string, claimed: boolean): Row {
     else if (team && m.result === team) { text = `Your team (${TEAM_NAME[team]}) won`; t = 'text-emerald-300'; }
     else { text = `${TEAM_NAME[m.result as 1 | 2]} won, your team lost`; t = 'text-rose-300'; }
   }
-  return { ticker: m.ticker, number: m.number, id: m.id, team, text, tone: t, claimable, claimed };
+  return { ticker: m.ticker, number: m.number, id: m.id, team, text, tone: t, claimable, claimed, leftover: 0 };
 }
 
 /** What this game wallet did on the chain, and how its matches ended. Saved in this browser; the chain stays the record of money. */
@@ -78,7 +78,15 @@ export const SquadsHistory: React.FC<{ wallet: GameWallet; tickers?: string[]; o
             for (const m of all) {
               if (!m.players.some((p) => p.address.toLowerCase() === wallet.address!.toLowerCase())) continue;
               const claimed = await squadClaimed(ticker, m.number, wallet.address as `0x${string}`).catch(() => false);
-              out.push(describe(m, wallet.address!, claimed));
+              const row = describe(m, wallet.address!, claimed);
+              if (row.claimable && claimed) {
+                // only offer a release while something is really left in the vault (money or an open position)
+                try {
+                  const v = await vaultAddress(ticker, m.number, wallet.address!);
+                  if (v) row.leftover = Math.max(await vaultWithdrawable(v, ticker), (await vaultPosition(v, ticker)) ? 1 : 0);
+                } catch { row.leftover = 1; }
+              }
+              out.push(row);
             }
           } catch { failed += 1; }
         }));
@@ -198,8 +206,8 @@ export const SquadsHistory: React.FC<{ wallet: GameWallet; tickers?: string[]; o
                       {acting === r.id ? 'Sending…' : 'Claim'}
                     </button>
                   )}
-                  {r.claimable && r.claimed && <button onClick={() => release(r)} disabled={acting !== null} className="ml-2 rounded-lg border border-zinc-600 px-3 py-1.5 text-xs font-semibold text-zinc-200 hover:bg-zinc-800 disabled:opacity-50">{acting === r.id ? 'Sending…' : 'Release bankroll'}</button>}
-                  {r.claimed && <span className="text-zinc-500"> claimed</span>}
+                  {r.claimable && r.claimed && r.leftover > 0.01 && <button onClick={() => release(r)} disabled={acting !== null} className="ml-2 rounded-lg border border-zinc-600 px-3 py-1.5 text-xs font-semibold text-zinc-200 hover:bg-zinc-800 disabled:opacity-50">{acting === r.id ? 'Sending…' : 'Release bankroll'}</button>}
+                  {r.claimed && <span className="text-zinc-500"> {r.leftover > 0.01 ? 'claimed' : 'paid out, nothing left'}</span>}
                 </div>
               </div>
             ))}
