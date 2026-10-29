@@ -161,4 +161,4 @@ const LegacyHistoryPanel: React.FC<{ markets: MarketQueueData[]; wallet: GameWal
 
 /** The squads game has its own history (a log of every transaction plus its matches); the old one stays for the classic game. */
 export const HistoryPanel: React.FC<{ markets: MarketQueueData[]; wallet: GameWallet; onClose: () => void }> = (p) =>
-  squadsEnabled ? <SquadsHistory wallet={p.wallet} onClose={p.onClose} /> : <LegacyHistoryPanel {...p} />;
+  squadsEnabled ? <SquadsHistory wallet={p.wallet} tickers={p.markets.map((m) => m.ticker)} onClose={p.onClose} /> : <LegacyHistoryPanel {...p} />;

@@ -3,7 +3,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import type { GameWallet } from '@/lib/useGameWallet';
 import { ACTIVITY_EVENT, Activity, readActivity } from '@/lib/activity';
-import { TEAM_NAME, SquadMatch, claimSquad, loadSquadMatches, squadClaimed } from '@/lib/squads';
+import { TEAM_NAME, SquadMatch, claimSquad, loadSquadMatches, nextSquadNumber, squadClaimed } from '@/lib/squads';
 import { Spinner } from '@/components/ProgressModal';
 
 const EXPLORER = 'https://explorer.testnet.somnia.network/tokyo/tx/';
@@ -33,7 +33,7 @@ function describe(m: SquadMatch, me: string, claimed: boolean): Row {
 }
 
 /** What this game wallet did on the chain, and how its matches ended. Saved in this browser; the chain stays the record of money. */
-export const SquadsHistory: React.FC<{ wallet: GameWallet; onClose: () => void }> = ({ wallet, onClose }) => {
+export const SquadsHistory: React.FC<{ wallet: GameWallet; tickers?: string[]; onClose: () => void }> = ({ wallet, tickers = [], onClose }) => {
   const [tab, setTab] = useState<'activity' | 'matches'>('activity');
   const [items, setItems] = useState<Activity[]>([]);
   const [rows, setRows] = useState<Row[] | null>(null);
@@ -61,29 +61,42 @@ export const SquadsHistory: React.FC<{ wallet: GameWallet; onClose: () => void }
     setLoading(true);
     setError(null);
     try {
-      const mine = readActivity(signer).filter((a) => a.kind === 'seat' && a.match);
-      const byTicker = new Map<string, Set<number>>();
-      mine.forEach((a) => { const m = a.match!; byTicker.set(m.ticker, (byTicker.get(m.ticker) ?? new Set()).add(m.number)); });
+      // Read the chain, not just this browser's log: every market that has had a match is scanned for this player's seats,
+      // so matches played earlier (or from another browser) show up too.
+      const names = new Set<string>(tickers);
+      readActivity(signer).forEach((a) => { if (a.match) names.add(a.match.ticker); });
+      const list = [...names];
       const out: Row[] = [];
-      for (const [ticker, nums] of byTicker) {
-        const all = await loadSquadMatches(ticker);
-        for (const n of nums) {
-          const m = all.find((x) => x.number === n);
-          if (!m) continue;
-          const claimed = await squadClaimed(ticker, n, wallet.address as `0x${string}`).catch(() => false);
-          out.push(describe(m, wallet.address, claimed));
-        }
+      let failed = 0;
+      for (let i = 0; i < list.length; i += 6) {
+        await Promise.all(list.slice(i, i + 6).map(async (ticker) => {
+          try {
+            if ((await nextSquadNumber(ticker)) <= 1) return; // no match was ever opened on this market
+            const all = await loadSquadMatches(ticker);
+            for (const m of all) {
+              if (!m.players.some((p) => p.address.toLowerCase() === wallet.address!.toLowerCase())) continue;
+              const claimed = await squadClaimed(ticker, m.number, wallet.address as `0x${string}`).catch(() => false);
+              out.push(describe(m, wallet.address!, claimed));
+            }
+          } catch { failed += 1; }
+        }));
       }
       out.sort((a, b) => b.number - a.number);
       setRows(out);
+      if (failed > 0) setError(`${failed} market${failed === 1 ? '' : 's'} could not be read just now, so the list may be incomplete. Press Refresh to try again.`);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
       setLoading(false);
     }
-  }, [wallet.address, signer]);
+  }, [wallet.address, signer, tickers.join(',')]);
 
   useEffect(() => { if (tab === 'matches') void loadMatches(); }, [tab, loadMatches]);
+  // a wallet with no saved transactions (older play, or another browser) starts on its matches, which come from the chain
+  const firstLook = React.useRef(true);
+  useEffect(() => {
+    if (firstLook.current && signer) { firstLook.current = false; if (readActivity(signer).length === 0) setTab('matches'); }
+  }, [signer]);
 
   const claim = async (r: Row) => {
     if (!wallet.key || !wallet.address) { setNote('Unlock your wallet to claim.'); return; }
@@ -123,7 +136,7 @@ export const SquadsHistory: React.FC<{ wallet: GameWallet; onClose: () => void }
 
         {tab === 'activity' && (
           <div className="space-y-2">
-            {items.length === 0 && <div className="rounded-xl border border-zinc-800 bg-zinc-900/50 p-6 text-center text-xs text-zinc-400">Nothing sent yet. Seats, trades, claims, transfers and deposits from this wallet will appear here.</div>}
+            {items.length === 0 && <div className="rounded-xl border border-zinc-800 bg-zinc-900/50 p-6 text-center text-xs text-zinc-400">Nothing recorded yet. Transactions sent from this browser from now on (seats, trades, claims, transfers, deposits) appear here. Earlier ones are not saved, but your past matches are listed under My matches, read from the chain.</div>}
             {items.map((a) => (
               <div key={a.id} className="rounded-xl border border-zinc-800 bg-zinc-900/60 p-3 text-xs">
                 <div className="flex flex-wrap items-center justify-between gap-2">
@@ -145,7 +158,7 @@ export const SquadsHistory: React.FC<{ wallet: GameWallet; onClose: () => void }
             {loading && <div className="flex items-center gap-2 text-xs text-zinc-400"><Spinner className="h-3 w-3" />Reading your matches from the chain…</div>}
             {error && <div className="rounded-xl border border-rose-500/30 bg-rose-500/5 p-4 text-xs text-rose-200">Could not read your matches: {error}</div>}
             {note && <div className="break-words rounded-xl border border-zinc-700 bg-zinc-900 p-3 text-xs text-zinc-200">{note}</div>}
-            {rows && rows.length === 0 && !loading && <div className="rounded-xl border border-zinc-800 bg-zinc-900/50 p-6 text-center text-xs text-zinc-400">No matches yet. Take a seat in a room and it will show up here. Only seats taken from this browser are listed.</div>}
+            {rows && rows.length === 0 && !loading && <div className="rounded-xl border border-zinc-800 bg-zinc-900/50 p-6 text-center text-xs text-zinc-400">No matches found for this wallet. Take a seat in a room and it will show up here.</div>}
             {rows?.map((r) => (
               <div key={r.id} className="grid grid-cols-2 items-center gap-x-3 gap-y-1 rounded-xl border border-zinc-800 bg-zinc-900/60 p-3 text-xs sm:grid-cols-4">
                 <div className="font-bold text-white">{r.id}</div>
