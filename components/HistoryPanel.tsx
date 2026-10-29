@@ -6,6 +6,8 @@ import { GameWallet } from '@/lib/useGameWallet';
 import { loadMatchHistory, loadTradeHistory, MatchRecord, TradeRecord } from '@/lib/history';
 import { Skeleton } from '@/components/Skeleton';
 import { Spinner } from '@/components/ProgressModal';
+import { SquadsHistory } from '@/components/SquadsHistory';
+import { squadsEnabled } from '@/lib/squads';
 
 const usd = (n: number) => `${n < 0 ? '-' : n > 0 ? '+' : ''}$${Math.abs(n).toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
 const when = (t: number) => (t ? new Date(t * 1000).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—');
@@ -13,7 +15,7 @@ const tx = (h: string) => `https://explorer.testnet.somnia.network/tokyo/tx/${h}
 const tone = { won: 'text-emerald-300', lost: 'text-rose-300', refund: 'text-zinc-300', cancelled: 'text-zinc-400', 'not staked': 'text-amber-300', 'in progress': 'text-sky-300', 'waiting for result': 'text-amber-300' } as const;
 
 /** What this game wallet staked, won and traded, read from the chain and the dreamDEX indexer. */
-export const HistoryPanel: React.FC<{ markets: MarketQueueData[]; wallet: GameWallet; onClose: () => void }> = ({ markets, wallet, onClose }) => {
+const LegacyHistoryPanel: React.FC<{ markets: MarketQueueData[]; wallet: GameWallet; onClose: () => void }> = ({ markets, wallet, onClose }) => {
   const [tab, setTab] = useState<'matches' | 'trades'>('matches');
   const [matches, setMatches] = useState<MatchRecord[] | null>(null);
   const [trades, setTrades] = useState<TradeRecord[] | null>(null);
@@ -156,3 +158,7 @@ export const HistoryPanel: React.FC<{ markets: MarketQueueData[]; wallet: GameWa
     </div>
   );
 };
+
+/** The squads game has its own history (a log of every transaction plus its matches); the old one stays for the classic game. */
+export const HistoryPanel: React.FC<{ markets: MarketQueueData[]; wallet: GameWallet; onClose: () => void }> = (p) =>
+  squadsEnabled ? <SquadsHistory wallet={p.wallet} onClose={p.onClose} /> : <LegacyHistoryPanel {...p} />;

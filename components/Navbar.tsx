@@ -32,6 +32,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   onOpenLeaders,
   onOpenHistory,
 }) => {
+  const squads = !!process.env.NEXT_PUBLIC_SQUADS_ADDRESS; // the squads game has one place to play, so no separate Lobby or duplicate Safeguards links
   return (
     <header className="sticky top-0 z-40 w-full border-b border-zinc-800/80 bg-zinc-950/90 backdrop-blur-md">
       <div className="mx-auto flex max-w-7xl items-center justify-between gap-8 px-4 py-3 sm:px-6">
@@ -54,6 +55,7 @@ export const Navbar: React.FC<NavbarProps> = ({
 
         {/* Zone 2: Clean single-line text navigation links */}
         <nav className="hidden md:flex items-center gap-7 text-sm font-medium text-zinc-400">
+          {!squads && (
           <button
             onClick={() => {
               soundFx.playClick();
@@ -65,18 +67,21 @@ export const Navbar: React.FC<NavbarProps> = ({
           >
             Lobby
           </button>
+          )}
           <button
             onClick={onOpenSpecs}
             className="transition-colors whitespace-nowrap shrink-0 hover:text-white"
           >
             Rules & Math
           </button>
+          {!squads && (
           <button
             onClick={onOpenSpecs}
             className="transition-colors whitespace-nowrap shrink-0 hover:text-white"
           >
             Safeguards
           </button>
+          )}
           <span className="text-zinc-600">·</span>
           <span className="text-xs text-zinc-500 tabular-nums">{process.env.NEXT_PUBLIC_SQUADS_ADDRESS ? 'Random Bulls vs Bears · your own vault · real dreamDEX trades' : `${MATCH_SIZE} Players · $10 Entry · your leverage · 20% Rake`}</span>
         </nav>

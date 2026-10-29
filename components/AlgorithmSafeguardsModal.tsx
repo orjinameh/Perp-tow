@@ -32,6 +32,16 @@ export const AlgorithmSafeguardsModal: React.FC<AlgorithmSafeguardsModalProps> =
     return () => { stop = true; };
   }, [isOpen]);
 
+  // Escape closes it, and the page behind does not scroll while it is open
+  useEffect(() => {
+    if (!isOpen) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKey);
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => { window.removeEventListener('keydown', onKey); document.body.style.overflow = prev; };
+  }, [isOpen, onClose]);
+
   if (!isOpen) return null;
   const n = Math.max(2, Math.min(total, r.size));
   const b = Math.max(1, Math.min(bulls, n - 1));
@@ -50,9 +60,10 @@ export const AlgorithmSafeguardsModal: React.FC<AlgorithmSafeguardsModalProps> =
   ];
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-zinc-950/80 p-3 backdrop-blur-md sm:p-5">
-      <div className="relative my-8 w-full max-w-2xl overflow-hidden rounded-3xl border border-zinc-800 bg-zinc-900 shadow-2xl">
-        <div className="flex items-center justify-between border-b border-zinc-800/80 bg-zinc-950/50 px-6 py-4">
+    <div className="fixed inset-0 z-[95] overflow-y-auto overscroll-contain bg-zinc-950/80 backdrop-blur-md" data-world-ui style={{ touchAction: 'pan-y' }} onClick={onClose} role="dialog" aria-modal="true" aria-label="How Perp Tug of War works">
+     <div className="flex min-h-full items-start justify-center p-3 sm:items-center sm:p-5">
+      <div className="relative w-full max-w-2xl rounded-3xl border border-zinc-800 bg-zinc-900 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+        <div className="sticky top-0 z-10 flex items-center justify-between rounded-t-3xl border-b border-zinc-800/80 bg-zinc-950/95 px-6 py-4">
           <div className="flex items-center gap-3">
             <div className="flex h-9 w-9 items-center justify-center rounded-xl border border-emerald-500/30 bg-emerald-500/10 text-emerald-400">
               <BookOpen className="h-4 w-4" />
@@ -124,8 +135,11 @@ export const AlgorithmSafeguardsModal: React.FC<AlgorithmSafeguardsModalProps> =
             <p>Each vault trades only for its owner and pays only its owner. Your game wallet key is encrypted in this browser with your PIN.</p>
             <p>Known limits: one person with several wallets could collude across teams, team draws use the previous block&apos;s hash, and nobody settles automatically unless a player&apos;s tab is open. See SECURITY.md in the repository.</p>
           </div>
+
+          <button onClick={() => { soundFx.playClick(); onClose(); }} className="w-full rounded-xl bg-emerald-500 px-4 py-2.5 text-sm font-bold text-zinc-950 hover:bg-emerald-400">Got it</button>
         </div>
       </div>
+     </div>
     </div>
   );
 };

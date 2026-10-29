@@ -1,4 +1,5 @@
 import { createPublicClient, createWalletClient, encodeAbiParameters, http, keccak256, parseAbi } from 'viem';
+import { logActivity } from './activity';
 import { privateKeyToAccount } from 'viem/accounts';
 import { hidekiTestnet } from '@somnia-chain/markets-sdk/chains';
 import { nowSec } from './clock';
@@ -158,16 +159,29 @@ function friendly(e: unknown): Error {
   return new Error(text.slice(0, 280));
 }
 
-async function send(key: Hex, fn: string, args: unknown[]) {
+interface Meta { kind: string; title: string; match?: { ticker: string; number: number } }
+
+/** Sends one contract call and records it in the activity log: confirmed, failed on chain, or never sent. */
+async function send(key: Hex, fn: string, args: unknown[], meta?: Meta) {
   const wallet = walletFor(key);
+  const signer = wallet.account.address;
+  const note = (status: 'confirmed' | 'failed' | 'not sent', hash?: string, detail?: string) => {
+    if (meta) logActivity({ signer, kind: meta.kind, title: meta.title, detail, hash, status, match: meta.match });
+  };
   let hash: Hex;
   try {
     hash = await wallet.writeContract({ address: SQUADS_ADDRESS as Hex, abi: ABI, functionName: fn as never, args: args as never });
   } catch (e) {
-    throw friendly(e);
+    const err = friendly(e);
+    note('not sent', undefined, err.message);
+    throw err;
   }
   const rc = await pub().waitForTransactionReceipt({ hash });
-  if (rc.status !== 'success') throw new Error(`${fn} reverted on chain (${hash}).`);
+  if (rc.status !== 'success') {
+    note('failed', hash, 'The transaction reverted on the chain.');
+    throw new Error(`${fn} reverted on chain (${hash}).`);
+  }
+  note('confirmed', hash);
   return hash;
 }
 
@@ -175,6 +189,7 @@ async function send(key: Hex, fn: string, args: unknown[]) {
 export async function enterSquad(key: Hex, ticker: string, number: number, player?: Hex, size = 0): Promise<string> {
   if (!squadsEnabled) throw new Error('The squads contract is not set up yet.');
   const payer = privateKeyToAccount(key).address;
+  const seatMeta: Meta = { kind: 'seat', title: `Took a seat in ${ticker} #${number} (stake and bankroll paid)`, match: { ticker, number } };
   const p = await readSquadParams();
   const stake = BigInt(Math.round((p.stakeUsd + p.bankrollUsd) * 1e6)) * 10n ** 12n; // the stake plus the vault bankroll
   const have = await pub().readContract({ address: USDSO, abi: ERC20, functionName: 'balanceOf', args: [payer] });
@@ -183,36 +198,48 @@ export async function enterSquad(key: Hex, ticker: string, number: number, playe
   if (allowance < stake) await send2(key, USDSO, ERC20, 'approve', [SQUADS_ADDRESS, stake * 100n]);
   if (forOther(key, player)) {
     const pool = await (await import('./pools')).poolOf(ticker);
-    return send(key, 'enterFor', [player, pool, ticker, BigInt(number), size]);
+    return send(key, 'enterFor', [player, pool, ticker, BigInt(number), size], seatMeta);
   }
-  return send(key, 'enter', [ticker, BigInt(number), size]);
+  return send(key, 'enter', [ticker, BigInt(number), size], seatMeta);
 }
 
 async function send2(key: Hex, to: Hex, abi: unknown, fn: string, args: unknown[]) {
-  const hash = await walletFor(key).writeContract({ address: to, abi: abi as never, functionName: fn as never, args: args as never });
+  const signer = privateKeyToAccount(key).address;
+  let hash: Hex;
+  try {
+    hash = await walletFor(key).writeContract({ address: to, abi: abi as never, functionName: fn as never, args: args as never });
+  } catch (e) {
+    logActivity({ signer, kind: 'approve', title: 'Allow the game to use your USDso', detail: friendly(e).message, status: 'not sent' });
+    throw friendly(e);
+  }
   const rc = await pub().waitForTransactionReceipt({ hash });
+  logActivity({ signer, kind: 'approve', title: 'Allow the game to use your USDso', hash, status: rc.status === 'success' ? 'confirmed' : 'failed' });
   if (rc.status !== 'success') throw new Error(`${fn} reverted on chain (${hash}).`);
   return hash;
 }
 
 async function viaPool(key: Hex, ticker: string, fn: 'leave' | 'confirm', number: number, player?: Hex) {
-  if (forOther(key, player)) return send(key, `${fn}For`, [player, await (await import('./pools')).poolOf(ticker), ticker, BigInt(number)]);
-  return send(key, fn, [ticker, BigInt(number)]);
+  const meta: Meta = fn === 'leave'
+    ? { kind: 'leave', title: `Left ${ticker} #${number} (stake and bankroll refunded)`, match: { ticker, number } }
+    : { kind: 'confirm', title: `Confirmed: continue ${ticker} #${number} with fewer players`, match: { ticker, number } };
+  if (forOther(key, player)) return send(key, `${fn}For`, [player, await (await import('./pools')).poolOf(ticker), ticker, BigInt(number)], meta);
+  return send(key, fn, [ticker, BigInt(number)], meta);
 }
 export const leaveSquad = (key: Hex, ticker: string, number: number, player?: Hex) => viaPool(key, ticker, 'leave', number, player);
 export const confirmSquad = (key: Hex, ticker: string, number: number, player?: Hex) => viaPool(key, ticker, 'confirm', number, player);
 /** Anyone can finish an unfilled lobby once its confirm window ended: it locks, or it cancels and refunds. */
-export const finishSquad = (key: Hex, ticker: string, number: number) => send(key, 'finish', [ticker, BigInt(number)]);
+export const finishSquad = (key: Hex, ticker: string, number: number) => send(key, 'finish', [ticker, BigInt(number)], { kind: 'lock', title: `Locked ${ticker} #${number}`, match: { ticker, number } });
 
 /** Pays a player their stake back or their winnings. Anyone may call it: the money goes to the player. */
 export async function claimSquad(key: Hex, ticker: string, number: number, player: Hex): Promise<string> {
   const k = squadKey(ticker, number);
-  if (forOther(key, player)) return send(key, 'claimFor', [player, await (await import('./pools')).poolOf(ticker), k]);
-  return send(key, 'claim', [k, player]);
+  const meta: Meta = { kind: 'claim', title: `Claimed payout or refund for ${ticker} #${number}`, match: { ticker, number } };
+  if (forOther(key, player)) return send(key, 'claimFor', [player, await (await import('./pools')).poolOf(ticker), k], meta);
+  return send(key, 'claim', [k, player], meta);
 }
 
 /** Anyone can settle a finished match: the contract reads each player's dreamDEX equity and computes the winner itself. */
-export const settleSquad = (key: Hex, ticker: string, number: number) => send(key, 'settle', [squadKey(ticker, number)]);
+export const settleSquad = (key: Hex, ticker: string, number: number) => send(key, 'settle', [squadKey(ticker, number)], { kind: 'settle', title: `Settled ${ticker} #${number}`, match: { ticker, number } });
 
 /** The contract's own live team scores (average equity change in USDso, capped per player): exactly what settle will use. */
 export async function squadScores(ticker: string, number: number): Promise<{ bulls: number; bears: number }> {
@@ -226,7 +253,7 @@ export async function squadClaimed(ticker: string, number: number, player: Hex):
 }
 
 /** Sends a player's leftover bankroll from their vault back to them. Anyone may call it; the money only goes to the player. */
-export const releaseSquad = (key: Hex, ticker: string, number: number, player: Hex) => send(key, 'release', [squadKey(ticker, number), player]);
+export const releaseSquad = (key: Hex, ticker: string, number: number, player: Hex) => send(key, 'release', [squadKey(ticker, number), player], { kind: 'release', title: `Released leftover bankroll from ${ticker} #${number}`, match: { ticker, number } });
 
 /** A player's own trading vault for a match (a contract only they, or their approved bot, can trade from). */
 export async function vaultAddress(ticker: string, number: number, player: string): Promise<Hex | null> {

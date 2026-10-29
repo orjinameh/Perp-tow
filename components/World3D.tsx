@@ -28,6 +28,7 @@ interface Props {
   onEnterMarket: (ticker: string) => void;
   onPickSide: (side: PositionSide) => void;
   onBackToLobby: () => void;
+  onModelStatus?: (s: 'loading' | 'ready') => void; // characters and rope are loading / all in place
   onModelFail?: (what: string) => void; // a 3D model could not be loaded: the arena shows plain stand-ins instead
   onResume: () => void;
   onFail: (message: string) => void;
@@ -946,8 +947,9 @@ export const World3D: React.FC<Props> = (props) => {
           plainRope.visible = false;
           plainFlag.visible = false;
           ready.rope = true;
+          if (ready.bull && ready.bear) live.current.onModelStatus?.('ready');
         })
-        .catch(() => live.current.onModelFail?.('the rope'));
+        .catch(() => { live.current.onModelFail?.('the rope'); live.current.onModelStatus?.('ready'); });
       const loadTeam = (name: 'bull' | 'bear', t: 1 | 2) =>
         loadModel(name)
           .then((g) => {
@@ -967,11 +969,13 @@ export const World3D: React.FC<Props> = (props) => {
             });
             tpl[t] = base;
             ready[name] = true;
+            if (ready.rope && ready.bull && ready.bear) live.current.onModelStatus?.('ready');
             sig = '';
           })
-          .catch(() => live.current.onModelFail?.(name === 'bull' ? 'the bull' : 'the bear'));
+          .catch(() => { live.current.onModelFail?.(name === 'bull' ? 'the bull' : 'the bear'); live.current.onModelStatus?.('ready'); });
       loadTeam('bull', 1);
       loadTeam('bear', 2);
+      live.current.onModelStatus?.('loading');
 
       // a rig for one cloned character: the bones we move, and the rest direction of each arm bone
       interface Rig {

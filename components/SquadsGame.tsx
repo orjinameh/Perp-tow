@@ -14,11 +14,28 @@ import { nowSec } from '@/lib/clock';
 import type { GameMatch } from '@/lib/types';
 import { Modal, btnGhost, btnPrimary } from '@/components/Modal';
 import { BotPanel } from '@/components/BotPanel';
+import { MatchStatus } from '@/components/MatchStatus';
+import { LocationBar } from '@/components/LocationBar';
+import { Skeleton } from '@/components/Skeleton';
 import type { SquadArenaView, WorldRoom } from '@/components/World3D';
 
 const Hall = dynamic(() => import('@/components/SquadsHall3D').then((m) => m.SquadsHall3D), { ssr: false, loading: () => <div className="h-[420px] flex items-center justify-center text-sm opacity-70">Building the hall…</div> });
 
-const World = dynamic(() => import('@/components/World3D').then((m) => m.World3D), { ssr: false, loading: () => <div className="h-full flex items-center justify-center text-sm opacity-70">Building the 3D world…</div> });
+/** Shown while the 3D world downloads and starts: says what is happening, and what to do if it takes too long. */
+function WorldLoading() {
+  const [slow, setSlow] = useState(false);
+  useEffect(() => { const t = setTimeout(() => setSlow(true), 12_000); return () => clearTimeout(t); }, []);
+  return (
+    <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center text-sm text-zinc-300" role="status" aria-live="polite">
+      <span className="h-8 w-8 animate-spin rounded-full border-4 border-zinc-700 border-t-emerald-400" />
+      <div>Building the 3D world…</div>
+      <div className="text-xs text-zinc-500">The first visit downloads the 3D scene and models, which can take a few seconds.</div>
+      {slow && <div className="max-w-sm text-xs text-amber-300">Still loading. A slow connection or device can take longer. If nothing appears after a minute, reload the page.</div>}
+    </div>
+  );
+}
+
+const World = dynamic(() => import('@/components/World3D').then((m) => m.World3D), { ssr: false, loading: () => <WorldLoading /> });
 
 type Hex = `0x${string}`;
 const short = (a: string) => `${a.slice(0, 6)}…${a.slice(-4)}`;
@@ -34,6 +51,9 @@ export function SquadsGame({ wallet, live }: { wallet: GameWallet; live: LiveMar
   const [claimed, setClaimed] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [liveWarn, setLiveWarn] = useState<string | null>(null); // background reads that keep failing
+  const [loaded, setLoaded] = useState(false); // the first read of the rooms has finished (even if it failed)
+  const [modelsLoading, setModelsLoading] = useState(false);
+  const [modelChip, setModelChip] = useState(false); // shown only if loading lasts more than a moment, so it never flickers
   const [now, setNow] = useState(0);
   const [side, setSide] = useState<'bulls' | 'bears'>('bulls');
   const [positionUsd, setPositionUsd] = useState(50);
@@ -64,7 +84,7 @@ export function SquadsGame({ wallet, live }: { wallet: GameWallet; live: LiveMar
       const list = await loadSquadMatches(ticker);
       setMatches(list);
       setError(null);
-    } catch (e) { setError(e instanceof Error ? e.message : String(e)); }
+    } catch (e) { setError(e instanceof Error ? e.message : String(e)); } finally { setLoaded(true); }
   }, [ticker]);
   useEffect(() => { void reload(); const t = setInterval(reload, 8000); return () => clearInterval(t); }, [reload]);
 
@@ -114,6 +134,20 @@ export function SquadsGame({ wallet, live }: { wallet: GameWallet; live: LiveMar
       .then(() => reload())
       .catch(() => { setTimeout(() => { if (autoSettled.current === id) autoSettled.current = null; }, 15_000); });
   }, [match?.phase, match?.number, key, !!mine, Math.floor(now / 15)]);
+
+  // the tab title carries the countdown, so a waiting player can switch tabs and still see the time
+  useEffect(() => {
+    const base = 'Tug of War';
+    const l = match ? (match.phase === 'filling' ? match.lobbyEndsAt - now : match.phase === 'confirming' ? match.confirmEndsAt - now : match.phase === 'trading' ? match.endsAt - now : 0) : 0;
+    const m = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s) % 60).padStart(2, '0')}`;
+    document.title = match && mine && l > 0 ? `${m(l)} · ${match.id} · ${base}` : base;
+    return () => { document.title = base; };
+  }, [match?.id, match?.phase, !!mine, now]);
+  useEffect(() => {
+    if (!modelsLoading) { setModelChip(false); return; }
+    const t = setTimeout(() => setModelChip(true), 400);
+    return () => clearTimeout(t);
+  }, [modelsLoading]);
 
   const sizeError = (() => {
     const t = sizeText.trim();
@@ -171,6 +205,15 @@ export function SquadsGame({ wallet, live }: { wallet: GameWallet; live: LiveMar
   const finish = (m: SquadMatch) => key && act('Locking the match', ['Lock'], () => finishSquad(key, ticker, m.number));
   const settle = (m: SquadMatch) => key && act('Settling', ['Computing the result on chain'], () => settleSquad(key, ticker, m.number));
   const claim = (m: SquadMatch) => key && act('Claiming', ['Pay out'], () => claimSquad(key, ticker, m.number, me as Hex));
+  /** One tap to a game: the fullest open room on this market that has a free seat, or a new room. */
+  const quickPlay = () => {
+    if (blocked()) return;
+    const openRooms = matches
+      .filter((m) => m.phase === 'filling' && m.players.length < (m.size || 0) && !(me && m.players.some((p) => p.address.toLowerCase() === me.toLowerCase())))
+      .sort((a, b) => b.players.length - a.players.length);
+    if (room.kind === 'hub') setRoom({ kind: 'market', ticker });
+    if (openRooms[0]) { setSelected(openRooms[0].number); setTicket(openRooms[0]); } else openRoomModal();
+  };
   const openRoomModal = () => { if (blocked()) return; setSizeText(String(Math.min(4, params?.size ?? 4))); setOpenModal(true); };
   const trade = () => key && vault && match && act('Opening your trade', ['Sending order from your vault'], () => vaultOrder(key, vault, ticker, side === 'bulls' ? 'buy' : 'sell', positionUsd, match.number));
   const close = () => key && vault && act('Closing your position', ['Closing'], () => vaultClose(key, vault, ticker));
@@ -188,7 +231,8 @@ export function SquadsGame({ wallet, live }: { wallet: GameWallet; live: LiveMar
 
   const panel = match ? (
         <section className="mt-6 border rounded p-4">
-          <h2 className="font-semibold">{match.id} · {match.phase}{left > 0 && ` · ${mmss(left)}`}</h2>
+          <h2 className="mb-2 font-semibold">{match.id}</h2>
+          <MatchStatus match={match} now={now} params={params} myTeam={(mine?.team ?? 0) as 0 | 1 | 2} seated={!!mine} claimed={claimed} />
 
           {(match.phase === 'filling' || match.phase === 'confirming') && (
             <p className="text-sm opacity-80 my-2">{mine && mine.team ? `You are on team ${TEAM_NAME[mine.team]}, drawn at random when you took your seat. ` : ''}Nobody picks a side, and you can trade any direction once it starts.</p>
@@ -300,20 +344,31 @@ export function SquadsGame({ wallet, live }: { wallet: GameWallet; live: LiveMar
         onOpenNew={openRoomModal}
         onConfirmSeat={() => { if (ticket && ticket !== 'new') void join(ticket); }}
         onCloseTicket={() => setTicket(null)}
+        onModelStatus={(s) => setModelsLoading(s === 'loading')}
         onModelFail={(what) => setLiveWarn(`Could not load the 3D model for ${what}, so plain stand-ins are shown. The game still works; reload to try again.`)}
         onBackToLobby={() => { setTicket(null); if (room.kind === 'arena') setRoom({ kind: 'market', ticker }); else setRoom({ kind: 'hub' }); }}
         onResume={() => {}}
         onFail={() => setView('screens')}
       />
       {room.kind === 'arena' && panel && (
-        <div className="absolute left-3 top-3 z-10 w-[min(92vw,26rem)] max-h-[85%] overflow-y-auto rounded-xl border border-zinc-700 bg-zinc-950/90 text-zinc-100 p-2 text-sm">{panel}</div>
+        <div className="absolute left-3 top-16 z-10 w-[min(92vw,26rem)] max-h-[calc(100%-5rem)] overflow-y-auto rounded-xl border border-zinc-700 bg-zinc-950/90 text-zinc-100 p-2 text-sm">{panel}</div>
       )}
       {!error && liveWarn && <div className="absolute inset-x-3 bottom-3 z-10 rounded-xl border border-amber-500/40 bg-amber-950/80 px-3 py-2 text-xs text-amber-200">{liveWarn}</div>}
       {error && <div className="absolute inset-x-3 bottom-3 z-10 rounded-xl border border-rose-500/40 bg-rose-950/80 px-3 py-2 text-xs text-rose-200">{error}</div>}
       {!wallet.ready ? null : !key && (
-        <div className="absolute inset-x-3 top-12 z-10 rounded-xl border border-amber-500/40 bg-amber-950/80 px-3 py-2 text-xs text-amber-200">No game wallet yet. Create one in the wallet panel above to take a seat.</div>
+        <div className="absolute inset-x-3 top-16 z-10 rounded-xl border border-amber-500/40 bg-amber-950/80 px-3 py-2 text-xs text-amber-200">{wallet.locked ? 'Your game wallet is locked. Enter your PIN in the wallet bar above to take a seat.' : 'No game wallet yet. Create one in the wallet bar above to take a seat.'}</div>
       )}
-      {room.kind === 'hub' && <div className="pointer-events-none absolute left-3 top-3 rounded-xl border border-zinc-800 bg-zinc-950/80 px-3 py-2 text-xs text-zinc-300">Walk into a market door. Random teams, free trading, ${params?.stakeUsd ?? 10} stake.</div>}
+      <LocationBar
+        kind={room.kind === 'arena' ? 'arena' : room.kind === 'market' ? 'market' : 'hub'}
+        ticker={ticker}
+        matchId={match ? match.id : null}
+        onHub={() => { setTicket(null); setRoom({ kind: 'hub' }); }}
+        onMarket={() => { setTicket(null); setRoom({ kind: 'market', ticker }); }}
+        onFind={quickPlay}
+        finding={false}
+        loadingRooms={!loaded && !error}
+      />
+      {modelChip && room.kind === 'arena' && <div className="absolute bottom-14 left-3 z-10 inline-flex items-center gap-2 rounded-xl border border-zinc-700 bg-zinc-950/90 px-3 py-1.5 text-xs text-zinc-300" role="status"><span className="h-3 w-3 animate-spin rounded-full border-2 border-zinc-500 border-t-emerald-400" />Loading characters…</div>}
     </div>
   );
 
@@ -361,8 +416,9 @@ export function SquadsGame({ wallet, live }: { wallet: GameWallet; live: LiveMar
         <Hall matches={matches} size={params?.size ?? 4} me={me} now={now} selected={match} onJoinRing={() => setPicker(true)} onOpenRing={() => openRoomModal()} />
       </div>
       {view === 'screens' && picker && (
-        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4" onClick={() => setPicker(false)}>
-          <div className="bg-zinc-900 text-white rounded p-4 w-full max-w-md max-h-[80vh] overflow-auto" onClick={(e) => e.stopPropagation()}>
+        <div className="fixed inset-0 z-[96] bg-black/60 overflow-y-auto overscroll-contain" data-world-ui onClick={() => setPicker(false)}>
+         <div className="flex min-h-full items-start justify-center p-4 sm:items-center">
+          <div className="bg-zinc-900 text-white rounded p-4 w-full max-w-md" onClick={(e) => e.stopPropagation()}>
             <h2 className="font-semibold mb-2">Open rooms on {ticker}</h2>
             {!matches.filter((m) => m.phase === 'filling').length && <p className="text-sm opacity-70">No room is open right now. Step on the other ring to open one.</p>}
             <ul className="space-y-2">
@@ -378,6 +434,7 @@ export function SquadsGame({ wallet, live }: { wallet: GameWallet; live: LiveMar
             </ul>
             <button className="mt-3 underline text-sm" onClick={() => setPicker(false)}>Close</button>
           </div>
+         </div>
         </div>
       )}
       {view === 'screens' && ticket && (() => {
@@ -387,8 +444,9 @@ export function SquadsGame({ wallet, live }: { wallet: GameWallet; live: LiveMar
         const size = t ? t.size : Math.max(2, Math.min(newSize, maxSize));
         const seated = t ? t.players.length : 0;
         return (
-          <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4" onClick={() => setTicket(null)}>
-            <div className="bg-zinc-900 text-white rounded p-5 w-full max-w-md max-h-[85vh] overflow-auto" onClick={(e) => e.stopPropagation()}>
+          <div className="fixed inset-0 z-[96] bg-black/60 overflow-y-auto overscroll-contain" data-world-ui onClick={() => setTicket(null)}>
+           <div className="flex min-h-full items-start justify-center p-4 sm:items-center">
+            <div className="bg-zinc-900 text-white rounded p-5 w-full max-w-md" onClick={(e) => e.stopPropagation()}>
               <p className="text-xs opacity-60">ENTRY TICKET</p>
               <h2 className="text-lg font-semibold">{t ? t.id : `${ticker} · new match room`}</h2>
               <dl className="text-sm my-3 space-y-2">
@@ -407,6 +465,7 @@ export function SquadsGame({ wallet, live }: { wallet: GameWallet; live: LiveMar
                 <button className="border rounded px-3 py-1" onClick={() => { const x = ticket; setTicket(null); if (x === 'new') void open(); else join(x); }}>Take my seat</button>
               </div>
             </div>
+           </div>
           </div>
         );
       })()}
@@ -415,7 +474,8 @@ export function SquadsGame({ wallet, live }: { wallet: GameWallet; live: LiveMar
       <div className="grid md:grid-cols-[1fr_320px] gap-6">
         <div>
           <h2 className="font-semibold mb-2">Matches</h2>
-          {!matches.length && <p className="text-sm opacity-70">No matches yet on {ticker}. Open one.</p>}
+          {!loaded && !error && (<div className="space-y-2" aria-busy="true"><Skeleton className="h-12 w-full rounded" /><Skeleton className="h-12 w-full rounded" /><Skeleton className="h-12 w-full rounded" /></div>)}
+          {loaded && !matches.length && <p className="text-sm opacity-70">No matches yet on {ticker}. Open one.</p>}
           <ul className="space-y-2">
             {matches.map((m) => (
               <li key={m.id}>

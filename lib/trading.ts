@@ -3,6 +3,7 @@ import { hidekiTestnet } from '@somnia-chain/markets-sdk/chains';
 import { createPublicClient, createWalletClient, formatEther, formatUnits, http, parseAbi, zeroAddress } from 'viem';
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts';
 import { gql } from './indexer';
+import { logActivity } from './activity';
 import { nowSec } from './clock';
 import { PositionSide } from './types';
 import { encodeUserData, LEVERAGE } from './gameTag';
@@ -156,6 +157,7 @@ export async function depositAllToMargin(key: Hex, address: Hex, amountUsd?: num
       );
     }
   }
+  logActivity({ signer: privateKeyToAccount(key).address, kind: 'deposit', title: `Deposited ${formatUnits(raw, 18)} USDso into your dreamDEX margin`, status: 'confirmed' });
   return `Deposited ${formatUnits(raw, 18)} USDso into the margin bank.`;
 }
 
@@ -180,6 +182,7 @@ export async function claimPaperCredit(key: Hex, address: Hex): Promise<string> 
       .slice(0, 500);
     throw new Error(`${why} [margin bank ${bank}, eligibility ${eligText}]`);
   }
+  logActivity({ signer: privateKeyToAccount(key).address, kind: 'faucet', title: 'Claimed the paper USDso credit', status: 'confirmed' });
   return 'Claimed 1,000 paper USDso.';
 }
 
@@ -356,6 +359,7 @@ export async function closeMyPosition(key: Hex, address: Hex, ticker: string): P
         orderType: ORDER_TYPE_MARKET,
       }))) as unknown as { hash?: string; receipt?: { status?: string } };
   if (res.receipt?.status && res.receipt.status !== 'success') throw new Error('The close transaction reverted on chain.');
+  logActivity({ signer: privateKeyToAccount(key).address, kind: 'close', title: `Closed your ${ticker} margin position`, hash: res.hash, status: 'confirmed' });
   return `Position closed.${res.hash ? ` Tx ${res.hash}` : ''}`;
 }
 
@@ -379,6 +383,7 @@ export async function withdrawAllFromMargin(key: Hex, address: Hex): Promise<str
     if (/reverted|insufficient/i.test(msg) || !/marginBank|amount|argument|invalid|undefined|required|bigint|type/i.test(msg)) throw first;
     await call(bank, unlocked);
   }
+  logActivity({ signer: privateKeyToAccount(key).address, kind: 'withdraw', title: `Withdrew ${formatUnits(unlocked, 18)} USDso from your margin to the wallet`, status: 'confirmed' });
   return `Withdrew ${formatUnits(unlocked, 18)} USDso from margin to the wallet.`;
 }
 
@@ -453,10 +458,16 @@ export async function vaultOrder(key: Hex, vault: Hex, ticker: string, side: 'bu
     await pub.simulateContract({ address: vault, abi: VAULT_ABI, functionName: 'trade', args, account: wallet.account });
     const hash = await wallet.writeContract({ address: vault, abi: VAULT_ABI, functionName: 'trade', args });
     const rc = await pub.waitForTransactionReceipt({ hash });
-    if (rc.status !== 'success') throw new Error('The order reverted on chain.');
+    if (rc.status !== 'success') {
+      logActivity({ signer: wallet.account.address, kind: 'trade', title: `${isBid ? 'Buy' : 'Sell'} $${positionUsd} ${ticker} from your vault`, detail: 'The order reverted on the chain.', hash, status: 'failed', match: { ticker, number: matchNumber } });
+      throw new Error('The order reverted on chain.');
+    }
+    logActivity({ signer: wallet.account.address, kind: 'trade', title: `${isBid ? 'Bought' : 'Sold'} about $${positionUsd} of ${ticker} from your vault`, hash, status: 'confirmed', match: { ticker, number: matchNumber } });
     return hash;
   } catch (e) {
-    throw vaultError(e);
+    const err = vaultError(e);
+    if (!/reverted on chain/.test(err.message)) logActivity({ signer: wallet.account.address, kind: 'trade', title: `${isBid ? 'Buy' : 'Sell'} $${positionUsd} ${ticker} from your vault`, detail: err.message, status: 'not sent', match: { ticker, number: matchNumber } });
+    throw err;
   }
 }
 
@@ -476,10 +487,16 @@ export async function vaultClose(key: Hex, vault: Hex, ticker: string): Promise<
     await pub.simulateContract({ address: vault, abi: VAULT_ABI, functionName: 'close', args: [m.poolAddress, price], account: wallet.account });
     const hash = await wallet.writeContract({ address: vault, abi: VAULT_ABI, functionName: 'close', args: [m.poolAddress, price] });
     const rc = await pub.waitForTransactionReceipt({ hash });
-    if (rc.status !== 'success') throw new Error('The close reverted on chain.');
+    if (rc.status !== 'success') {
+      logActivity({ signer: wallet.account.address, kind: 'close', title: `Close your ${ticker} position`, detail: 'The close reverted on the chain.', hash, status: 'failed' });
+      throw new Error('The close reverted on chain.');
+    }
+    logActivity({ signer: wallet.account.address, kind: 'close', title: `Closed your ${ticker} vault position`, hash, status: 'confirmed' });
     return hash;
   } catch (e) {
-    throw vaultError(e);
+    const err = vaultError(e);
+    if (!/reverted on chain/.test(err.message)) logActivity({ signer: wallet.account.address, kind: 'close', title: `Close your ${ticker} position`, detail: err.message, status: 'not sent' });
+    throw err;
   }
 }
 

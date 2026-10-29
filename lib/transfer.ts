@@ -2,6 +2,8 @@ import { hidekiTestnet } from '@somnia-chain/markets-sdk/chains';
 import { createPublicClient, createWalletClient, getAddress, http, isAddress, parseAbi, parseEther, parseUnits } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 
+import { logActivity } from './activity';
+
 type Hex = `0x${string}`;
 const RPC = 'https://api.hideki2.infra.testnet.somnia.network';
 const USDSO = '0xed7993A74dAe1e6656B704A424DcD8711aAf4F72' as const;
@@ -45,9 +47,11 @@ export async function sendFunds(key: Hex, token: 'STT' | 'USDso', toRaw: string,
     }
     const receipt = await pub.waitForTransactionReceipt({ hash, timeout: 60_000 });
     if (receipt.status !== 'success') throw new Error('The transfer was sent but failed on the chain.');
+    logActivity({ signer: account.address, kind: 'transfer', title: `Sent ${amount} ${token} to ${to.slice(0, 8)}…${to.slice(-6)}`, hash, status: 'confirmed' });
     return hash;
   } catch (e) {
     if (e instanceof Error && /^(Not enough|This wallet|The transfer)/.test(e.message)) throw e;
+    logActivity({ signer: account.address, kind: 'transfer', title: `Send ${amount} ${token} to ${to.slice(0, 8)}…${to.slice(-6)}`, detail: reason(e), status: 'not sent' });
     throw new Error(`Transfer failed: ${reason(e)}`);
   }
 }

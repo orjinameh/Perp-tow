@@ -225,7 +225,7 @@ export default function TugOfWarApp() {
         view={squadsOn ? undefined : view}
         onToggleView={squadsOn ? undefined : () => switchView(view === 'world' ? 'classic' : 'world')}
         onOpenLeaders={live.status === 'ok' ? () => setLeadersOpen(true) : undefined}
-        onOpenHistory={live.status === 'ok' ? () => setHistoryOpen(true) : undefined}
+        onOpenHistory={live.status === 'ok' || squadsOn ? () => setHistoryOpen(true) : undefined}
       />
 
       <WalletPanel wallet={wallet} />
@@ -241,7 +241,7 @@ export default function TugOfWarApp() {
           <button onClick={() => copy.stop()} className="ml-2 underline">Stop</button>
         </div>
       )}
-      {historyOpen && live.status === 'ok' && <HistoryPanel markets={live.markets} wallet={wallet} onClose={() => setHistoryOpen(false)} />}
+      {historyOpen && (squadsOn || live.status === 'ok') && <HistoryPanel markets={live.markets} wallet={wallet} onClose={() => setHistoryOpen(false)} />}
       {leadersOpen && live.status === 'ok' && <LeadersPanel markets={live.markets} wallet={wallet} copy={copy} onClose={() => setLeadersOpen(false)} />}
       {worldNote && <div className="border-b border-rose-500/30 bg-rose-950/30 px-4 py-2 text-center text-xs text-rose-200">{worldNote}</div>}
 
