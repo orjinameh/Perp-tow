@@ -437,6 +437,18 @@ function vaultError(e: unknown): Error {
   return new Error(text.slice(0, 300));
 }
 
+/** What a vault can do right now: free margin, open position, and the margin an order of this size needs. */
+async function vaultSnapshot(vault: Hex, m: PerpRow, orderUsd: number) {
+  const pub = createPublicClient({ chain: hidekiTestnet, transport: http(RPC_URL) });
+  const [free, pos] = await Promise.all([
+    pub.readContract({ address: m.marginBank, abi: BANK_COLLATERAL_ABI, functionName: 'getWithdrawableCollateral', args: [vault] }) as Promise<bigint>,
+    pub.readContract({ address: m.marginBank, abi: BANK_POSITION_ABI, functionName: 'getPosition', args: [vault, m.poolAddress] }) as Promise<{ size: bigint }>,
+  ]);
+  const bps = Number(m.initialMarginBps);
+  const need = Number.isFinite(bps) && bps > 0 ? (orderUsd * bps) / 10_000 : null;
+  return { freeUsd: Number(free) / 1e18, size: pos.size, needUsd: need };
+}
+
 /** A real market order from the player's own vault. `positionUsd` is the size of the position in dollars. */
 export async function vaultOrder(key: Hex, vault: Hex, ticker: string, side: 'buy' | 'sell', positionUsd: number, matchNumber: number): Promise<string> {
   const m = await perpRow(key, ticker);
@@ -455,6 +467,13 @@ export async function vaultOrder(key: Hex, vault: Hex, ticker: string, side: 'bu
   const wallet = createWalletClient({ chain: hidekiTestnet, transport: http(RPC_URL), account: privateKeyToAccount(key) });
   const pub = createPublicClient({ chain: hidekiTestnet, transport: http(RPC_URL) });
   const args = [m.poolAddress, isBid, BigInt(encodeUserData(matchNumber)), price, quantity] as const;
+  const snap = await vaultSnapshot(vault, m, positionUsd).catch(() => null);
+  const adds = !!snap && (snap.size === 0n || (snap.size > 0n) === isBid); // a trade the other way only reduces risk
+  if (snap && adds && snap.needUsd !== null && snap.freeUsd < snap.needUsd) {
+    const msg = `Your vault has about $${snap.freeUsd.toFixed(2)} of free margin and this $${positionUsd} order needs about $${snap.needUsd.toFixed(2)}. Try a smaller position, or close a trade to free margin.`;
+    logActivity({ signer: wallet.account.address, kind: 'trade', title: `${isBid ? 'Buy' : 'Sell'} $${positionUsd} ${ticker} from your vault`, detail: msg, status: 'not sent', match: { ticker, number: matchNumber } });
+    throw new Error(msg);
+  }
   try {
     await pub.simulateContract({ address: vault, abi: VAULT_ABI, functionName: 'trade', args, account: wallet.account });
     const hash = await wallet.writeContract({ address: vault, abi: VAULT_ABI, functionName: 'trade', args });
@@ -467,6 +486,7 @@ export async function vaultOrder(key: Hex, vault: Hex, ticker: string, side: 'bu
     return hash;
   } catch (e) {
     const err = vaultError(e);
+    if (snap && /0x[0-9a-f]{8}/i.test(err.message)) err.message += ` (Your vault had about $${snap.freeUsd.toFixed(2)} free margin and an open position of ${snap.size} units; this order needs about $${snap.needUsd?.toFixed(2) ?? '?'} of margin.)`;
     if (!/reverted on chain/.test(err.message)) logActivity({ signer: wallet.account.address, kind: 'trade', title: `${isBid ? 'Buy' : 'Sell'} $${positionUsd} ${ticker} from your vault`, detail: err.message, status: 'not sent', match: { ticker, number: matchNumber } });
     throw err;
   }
