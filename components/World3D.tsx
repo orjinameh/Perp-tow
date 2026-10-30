@@ -1084,22 +1084,48 @@ export const World3D: React.FC<Props> = (props) => {
         return { g, mat, ring };
       });
 
-      // rope sag: the middle hangs, tension straightens it
-      // The rope lies near the floor in the middle and climbs to the pullers' hands within two bones, then runs level.
-      // `ropeLift` is how steeply it climbs: a slack rope lies lower, a taut one rises.
-      let ropeLift = 0.02;
-      const bend = () => ropeLift; // a taut rope: level at hand height with only a slight dip in the middle
-      const ropeYAt = (xl: number) => {
-        let ang = 0;
-        let y = 1;
-        let rem = Math.abs(xl) / SEG;
-        for (let k = 0; k < 8 && rem > 0; k++) {
-          const step = Math.min(1, rem);
-          ang += bend();
-          y += 0.5 * Math.sin(ang) * step;
-          rem -= step;
+      // ---- the rope is a real simulated chain ----
+      // 129 nodes of equal spacing (so the rope never stretches), gravity, floor contact with friction. Hands pull on it
+      // through strong springs. The visible rope model's bones are then bent to follow the chain.
+      const SUB = 8;
+      const NB = 8;
+      const NN = NB * SUB; // nodes on each side of the centre node
+      const RD = SEG / SUB; // spacing between neighbouring nodes
+      const rx = new Float32Array(2 * NN + 1);
+      const ry = new Float32Array(2 * NN + 1);
+      const rpx = new Float32Array(2 * NN + 1);
+      const rpy = new Float32Array(2 * NN + 1);
+      for (let i = 0; i <= 2 * NN; i++) { rx[i] = (i - NN) * RD; ry[i] = 0.04; rpx[i] = rx[i]; rpy[i] = ry[i]; }
+      interface Hand { idx: number; tx: number; ty: number }
+      const stepRope = (dt: number, hands: Hand[]) => {
+        const sub = 3;
+        const h = Math.min(dt, 0.04) / sub;
+        const n = 2 * NN + 1;
+        for (let s2 = 0; s2 < sub; s2++) {
+          for (let i = 0; i < n; i++) {
+            const vx = (rx[i] - rpx[i]) * 0.992;
+            const vy = (ry[i] - rpy[i]) * 0.992;
+            rpx[i] = rx[i]; rpy[i] = ry[i];
+            rx[i] += vx;
+            ry[i] += vy - 9.8 * h * h;
+            if (ry[i] < 0.04) { ry[i] = 0.04; rpx[i] = rx[i] - (rx[i] - rpx[i]) * 0.55; rpy[i] = ry[i]; } // the ground grips the rope
+          }
+          for (let it = 0; it < 18; it++) {
+            for (let i = 0; i < n - 1; i++) {
+              const dx = rx[i + 1] - rx[i];
+              const dy = ry[i + 1] - ry[i];
+              const dist = Math.hypot(dx, dy) || 1e-6;
+              const k = ((dist - RD) / dist) * 0.5;
+              rx[i] += dx * k; ry[i] += dy * k;
+              rx[i + 1] -= dx * k; ry[i + 1] -= dy * k;
+            }
+            for (const hd of hands) {
+              rx[hd.idx] += (hd.tx - rx[hd.idx]) * 0.6;
+              ry[hd.idx] += (hd.ty - ry[hd.idx]) * 0.6;
+            }
+            for (let i = 0; i < n; i++) if (ry[i] < 0.04) ry[i] = 0.04;
+          }
         }
-        return Math.max(0.08, y * ROPE_SY - ROPE_DROP);
       };
       const aim = (bone: THREE.Object3D, rest: THREE.Vector3, targetWorld: THREE.Vector3) => {
         const par = bone.parent;
@@ -1225,37 +1251,34 @@ export const World3D: React.FC<Props> = (props) => {
         const gap = hasScores ? (A!.bulls as number) - (A!.bears as number) : 0;
         const bias = Math.max(-1, Math.min(1, gap / Math.max(0.5, A?.scale ?? 5))); // +1 Bulls, -1 Bears
         const trading = A?.phase === 'trading';
-        // a real rope: a spring pulled toward where the score says, with damping, and the teams heave in surges
         if (A && A.kick > lastKick) { if (lastKick >= 0 && A.myTeam) rv += (A.myTeam === 1 ? -1 : 1) * 0.5; lastKick = A.kick; }
         if (!A) lastKick = -1; else if (lastKick < 0) lastKick = A.kick;
-        const heave = 0; // the rope only ever moves toward whoever is winning: no back-and-forth
+        // each team pulls in its own rhythm (the heaves alternate); the better team pulls harder; the ground and the
+        // players' footing resist; a soft stop keeps the rope inside the arena
         const dtc = Math.min(dt, 0.05);
-        rv += (4 * (-bias * 3 + heave - ropeOffset) - 4.2 * rv) * dtc; // overdamped: it glides, never rocks
+        const pulseB = 0.5 + 0.5 * Math.sin(t * 2.4);
+        const pulseR = 0.5 + 0.5 * Math.sin(t * 2.4 + 2.6);
+        const fB = trading ? (1 + bias) * (0.8 + 0.15 * pulseB) : 0;
+        const fR = trading ? (1 - bias) * (0.8 + 0.15 * pulseR) : 0;
+        const net = 4 * (fR - fB); // positive pulls the rope toward the Bears
+        const stop = 1.87 * ropeOffset;
+        const friction = 0.35 * Math.sign(rv) * Math.min(1, Math.abs(rv) * 8);
+        rv += (net - stop - 3 * rv - friction) * dtc;
+        if (!trading) rv *= 0.9;
         ropeOffset += rv * dtc;
         team.position.x = ropeOffset;
         // while the lobby is open the players sit; when the match runs they stand and pull
         const seatedNow = A?.phase === 'filling' || A?.phase === 'confirming' || A?.phase === 'finishable';
         const intensity = trading ? 0.4 + Math.abs(bias) * 0.6 : A?.phase === 'filling' ? 0.15 : 0.1;
         // the teams heave together on a rhythm; the rope tightens with each heave and goes slack between them
-        const heavePulse = trading ? Math.max(0, Math.sin(t * 2.4)) : 0;
         stepPh += dt * (1.5 + Math.min(8, Math.abs(rv) * 7));
-        const taut = Math.min(1, intensity + Math.abs(bias) * 0.3 + heavePulse * 0.25 + Math.min(0.3, Math.abs(rv) * 0.3));
-        ropeLift = 0.006 + 0.032 * (1 - taut); // more tension, flatter rope
-        if (ropeBones) {
-          // past the last puller on each side the rope curves down and its ends lie on the floor
-          const counts = [1, 2].map((tm) => (A?.players ?? []).filter((p) => p.team === tm).length);
-          const cols = Math.max(1, Math.ceil(Math.max(...counts, 1) / 2));
-          const tailStart = Math.min(7, Math.ceil((1.5 + (cols - 1) * 0.95 + 0.7) / SEG));
-          const left = Math.max(1, 8 - tailStart);
-          const droop = Math.min(0.8, 3.4 / ((left * (left + 1)) / 2)); // fewer bones left past the last puller: drop faster to still reach the floor
-          const tail = (k: number) => (k >= tailStart ? droop * (k - tailStart + 1) : 0);
-          ropeBones.l.forEach((b, k) => { b.rotation.z = -(bend() - tail(k)); });
-          ropeBones.r.forEach((b, k) => { b.rotation.z = bend() - tail(k); });
-        }
         team.updateMatrixWorld(true);
+        const hands: Hand[] = [];
+        const armJobs: (() => void)[] = [];
         [bulls, bears].forEach((pool, pi) =>
           pool.forEach((pu) => {
             if (!pu.on) return;
+            const heavePulse = trading ? (pi === 0 ? pulseB : pulseR) : 0; // this team's own rhythm
             // waiting in the lobby: a person sits on a chair. Once the match runs, the animal stands and pulls.
             if (pu.human) { pu.human.group.visible = seatedNow; pu.chair.visible = seatedNow; }
             if (pu.model) pu.model.visible = !seatedNow;
@@ -1316,24 +1339,49 @@ export const World3D: React.FC<Props> = (props) => {
             rg.chest.rotation.x = dragged ? 0.1 : 0;
             pu.holder.position.y = Math.abs(stepSwing) * 0.04 * walk + heavePulse * 0.01;
             pu.holder.updateMatrixWorld(true);
-            // both hands on the rope, measured from this puller's own shoulders (so leaning back keeps the grip in reach)
-            const reach = (up: THREE.Object3D, restUp: THREE.Vector3, fore: THREE.Object3D, restFore: THREE.Vector3, forward: number) => {
-              const sh = up.getWorldPosition(new THREE.Vector3());
-              team.worldToLocal(sh);
-              const gx = sh.x - pu.sx * forward;
-              const grip = new THREE.Vector3(gx, ropeYAt(gx), 0);
-              team.localToWorld(grip);
+            // both hands grip the rope: each hand is a spring on one rope node, aimed from this puller's own shoulder
+            const grab = (up: THREE.Object3D, restUp: THREE.Vector3, fore: THREE.Object3D, restFore: THREE.Vector3, forward: number) => {
               const shW = up.getWorldPosition(new THREE.Vector3());
-              // the elbow sits halfway to the hand, dropped and pushed out a little
-              tmp.copy(shW).lerp(grip, 0.5);
-              tmp.y -= 0.1;
-              aim(up, restUp, tmp);
-              aim(fore, restFore, grip);
+              const local = pu.x - pu.sx * forward; // where along the rope this hand holds, counted from the middle
+              const arc = Math.abs(local) * 1.03; // a touch of slack between the teams
+              const idx = Math.max(1, Math.min(NN, Math.round(arc / RD))) * (local < 0 ? -1 : 1) + NN;
+              const tx = shW.x - pu.sx * 0.35;
+              const ty = Math.max(0.85, Math.min(1.3, shW.y - 0.2));
+              hands.push({ idx, tx, ty });
+              armJobs.push(() => {
+                const grip = new THREE.Vector3(rx[idx], ry[idx], 0);
+                tmp.copy(shW).lerp(grip, 0.5);
+                tmp.y -= 0.1;
+                aim(up, restUp, tmp);
+                aim(fore, restFore, grip);
+              });
             };
-            reach(rg.upL, rg.restUpL, rg.foreL, rg.restForeL, 0.3);
-            reach(rg.upR, rg.restUpR, rg.foreR, rg.restForeR, 0.62);
+            grab(rg.upL, rg.restUpL, rg.foreL, rg.restForeL, 0.3);
+            grab(rg.upR, rg.restUpR, rg.foreR, rg.restForeR, 0.62);
           }),
         );
+        // move the rope with the hands, then bend the visible rope along the chain and put each hand on its node
+        stepRope(dt, hands);
+        if (ropeBones) {
+          ropeGroup.position.x = rx[NN] - ropeOffset;
+          ropeGroup.position.y = ry[NN] - ROPE_SY;
+          const bendSide = (bones: THREE.Object3D[], dir: 1 | -1) => {
+            let prev = 0;
+            bones.forEach((b, k) => {
+              const i0 = NN + dir * k * SUB;
+              const i1 = NN + dir * (k + 1) * SUB;
+              const vx = (dir * (rx[i1] - rx[i0])) / ROPE_SX;
+              const vy = (ry[i1] - ry[i0]) / ROPE_SY;
+              const a2 = Math.atan2(vy, vx);
+              b.rotation.z = dir * (a2 - prev);
+              prev = a2;
+            });
+          };
+          bendSide(ropeBones.r, 1);
+          bendSide(ropeBones.l, -1);
+          ropeGroup.updateMatrixWorld(true);
+        }
+        armJobs.forEach((f) => f());
       });
 
       exitPortal(-w / 2 + 2, d / 2 - 2, 'Leave to the market room', () => live.current.onBackToLobby());
