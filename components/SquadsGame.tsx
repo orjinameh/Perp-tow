@@ -210,6 +210,25 @@ export function SquadsGame({ wallet, live }: { wallet: GameWallet; live: LiveMar
     return out.ok;
   };
   const toArena = () => setRoom({ kind: 'arena', ticker });
+  // Remember which match I was in, so a refresh (or reopening the site) lands back in it instead of the hub.
+  const [restored, setRestored] = useState(false);
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem('tow-last-match');
+      const v = raw ? (JSON.parse(raw) as { ticker: string; number: number; at: number }) : null;
+      if (v && typeof v.number === 'number' && typeof v.ticker === 'string' && Date.now() - v.at < 3 * 24 * 3600 * 1000) {
+        setTicker(v.ticker); setSelected(v.number); setRoom({ kind: 'arena', ticker: v.ticker });
+      }
+    } catch { /* storage unavailable: start at the hub */ }
+    setRestored(true); // set together with the restored room, so the saver below never sees the hub in between
+  }, []);
+  useEffect(() => {
+    if (!restored) return;
+    try {
+      if (room.kind === 'arena' && selected !== null) window.localStorage.setItem('tow-last-match', JSON.stringify({ ticker, number: selected, at: Date.now() }));
+      else if (room.kind === 'hub') window.localStorage.removeItem('tow-last-match');
+    } catch { /* ignore */ }
+  }, [restored, room.kind, selected, ticker]);
 
   const open = async (size?: number) => {
     if (blocked() || !key) return;

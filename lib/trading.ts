@@ -458,15 +458,17 @@ export async function vaultOrder(key: Hex, vault: Hex, ticker: string, side: 'bu
   const lot = BigInt(m.lotSize);
   const min = BigInt(m.minQuantity);
   const mark = BigInt(m.markPrice);
-  const slipped = isBid ? (mark * (10_000n + SLIPPAGE_BPS)) / 10_000n : (mark * (10_000n - SLIPPAGE_BPS)) / 10_000n;
-  const price = tick > 0n ? (slipped / tick) * tick : slipped;
+  const priceAt = (bps: bigint) => {
+    const sl = isBid ? (mark * (10_000n + bps)) / 10_000n : (mark * (10_000n - bps)) / 10_000n;
+    return tick > 0n ? (sl / tick) * tick : sl;
+  };
   const usd18 = BigInt(Math.round(positionUsd * 1e6)) * 10n ** 12n;
   let quantity = (usd18 * 10n ** dec) / mark;
   quantity = lot > 0n ? (quantity / lot) * lot : quantity;
   if (quantity < min) quantity = lot > 0n ? ((min + lot - 1n) / lot) * lot : min;
   const wallet = createWalletClient({ chain: hidekiTestnet, transport: http(RPC_URL), account: privateKeyToAccount(key) });
   const pub = createPublicClient({ chain: hidekiTestnet, transport: http(RPC_URL) });
-  const args = [m.poolAddress, isBid, BigInt(encodeUserData(matchNumber)), price, quantity] as const;
+  const argsAt = (bps: bigint) => [m.poolAddress, isBid, BigInt(encodeUserData(matchNumber)), priceAt(bps), quantity] as const;
   const snap = await vaultSnapshot(vault, m, positionUsd).catch(() => null);
   const adds = !!snap && (snap.size === 0n || (snap.size > 0n) === isBid); // a trade the other way only reduces risk
   if (snap && adds && snap.needUsd !== null && snap.freeUsd < snap.needUsd) {
@@ -475,7 +477,23 @@ export async function vaultOrder(key: Hex, vault: Hex, ticker: string, side: 'bu
     throw new Error(msg);
   }
   try {
-    await pub.simulateContract({ address: vault, abi: VAULT_ABI, functionName: 'trade', args, account: wallet.account });
+    // a market order only pays up to its limit price. If the pool refuses the tight 0.5% limit (the quoted mark can lag
+    // the real book), try wider limits: the order still fills at the best available price, never at the limit itself.
+    let args = argsAt(SLIPPAGE_BPS);
+    let lastErr: unknown = null;
+    let ok = false;
+    for (const bps of [SLIPPAGE_BPS, 150n, 400n, 1000n]) {
+      args = argsAt(bps);
+      try {
+        await pub.simulateContract({ address: vault, abi: VAULT_ABI, functionName: 'trade', args, account: wallet.account });
+        ok = true;
+        break;
+      } catch (e2) {
+        lastErr = e2;
+        if (/match is not live|not allowed/i.test(String((e2 as Error).message))) throw e2; // wider prices cannot fix these
+      }
+    }
+    if (!ok) throw lastErr;
     const hash = await wallet.writeContract({ address: vault, abi: VAULT_ABI, functionName: 'trade', args });
     const rc = await pub.waitForTransactionReceipt({ hash });
     if (rc.status !== 'success') {
