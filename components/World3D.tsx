@@ -1079,11 +1079,31 @@ export const World3D: React.FC<Props> = (props) => {
       const bears = mkPool(1);
       // lobby: before the lock nobody has a team yet, so everyone waits in a neutral line
       const lobby = Array.from({ length: MAXSEATS }, () => {
-        const { g, mat } = makePeg();
+        // anyone without a team yet also sits, on a chair, in the waiting line facing the rope: never a grey peg
+        const g = new THREE.Group();
+        g.scale.setScalar(0.85);
+        g.visible = false;
+        const wood = stdMat(0x8b6b4a, 0.85);
+        const seat = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.07, 0.6), wood);
+        seat.position.set(0, 0.5, -0.02);
+        const back = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.62, 0.06), wood);
+        back.position.set(0, 0.84, -0.32);
+        g.add(seat, back);
+        for (const lx of [-0.26, 0.26]) for (const lz of [-0.28, 0.24]) {
+          const leg = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.5, 0.06), wood);
+          leg.position.set(lx, 0.25, lz);
+          g.add(leg);
+        }
+        const person = makeCharacter('human');
+        person.group.position.set(0, 0.5 - 0.92 + 0.02, -0.04);
+        person.legL.rotation.x = -1.2; person.legR.rotation.x = -1.2;
+        person.armL.rotation.x = -0.7; person.armR.rotation.x = -0.7;
+        g.add(person.group);
+        g.rotation.y = Math.PI; // face the rope
         const ring = ringMesh(0.45, 0.58);
         add(g);
         add(ring);
-        return { g, mat, ring };
+        return { g, ring };
       });
 
       // ---- the rope is a real simulated chain ----
@@ -1234,7 +1254,6 @@ export const World3D: React.FC<Props> = (props) => {
           lb.g.visible = !!pl;
           lb.ring.visible = !locked && i < total;
           lb.ring.position.set(x, 0.04, 4.2);
-          lb.mat.color.setHex(0xcbd5e1);
           (lb.ring.material as THREE.MeshBasicMaterial).color.setHex(pl?.isMe ? 0xfacc15 : 0x64748b);
         });
         board.redraw();
