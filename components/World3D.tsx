@@ -1252,7 +1252,7 @@ export const World3D: React.FC<Props> = (props) => {
             if (seatedNow && pu.human) {
               const h = pu.human;
               h.group.position.set(0, 0.5 - 0.92 + 0.02, -0.04);
-              h.legL.rotation.x = -1.4; h.legR.rotation.x = -1.4;
+              h.legL.rotation.x = -1.2; h.legR.rotation.x = -1.2;
               h.armL.rotation.x = -0.7; h.armR.rotation.x = -0.7;
               h.group.rotation.x = Math.sin(t * 1.3 + pu.phase) * 0.012;
               return;
@@ -1281,11 +1281,17 @@ export const World3D: React.FC<Props> = (props) => {
               rest(rg.upR, rg.restUpR, rg.foreR, rg.restForeR, rg.legR);
               return;
             }
-            rg.hips.position.y = rg.hipsY;
-            rg.upLegL.rotation.x = 0; rg.upLegR.rotation.x = 0; rg.legL.rotation.x = 0; rg.legR.rotation.x = 0;
             const lean = 0.1 + 0.16 * intensity + (winning ? 0.18 * Math.abs(bias) : 0) - (losing ? 0.05 * Math.abs(bias) : 0) + Math.sin(t * 5 + pu.phase) * (0.05 + Math.abs(rv) * 0.04) * intensity;
-            rg.spine.rotation.x = -lean * 0.5;
-            rg.chest.rotation.x = -lean * 0.5;
+            // heels dug in: the whole body leans back from the rope, knees bent, legs planted
+            const back = 0.25 + lean * 0.9;
+            pu.holder.rotation.order = 'YXZ'; // turn first, then tip the whole body back about its own side-to-side axis
+            pu.holder.rotation.x = -back;
+            rg.hips.position.y = rg.hipsY - 0.08;
+            rg.hips.rotation.x = 0;
+            rg.upLegL.rotation.x = 0.15; rg.upLegR.rotation.x = 0.15;
+            rg.legL.rotation.x = -0.2; rg.legR.rotation.x = -0.2;
+            rg.spine.rotation.x = 0;
+            rg.chest.rotation.x = 0;
             pu.holder.position.y = Math.abs(Math.sin(t * 5 + pu.phase)) * 0.025 * intensity;
             pu.holder.updateMatrixWorld(true);
             const reach = (up: THREE.Object3D, restUp: THREE.Vector3, fore: THREE.Object3D, restFore: THREE.Vector3, forward: number) => {
