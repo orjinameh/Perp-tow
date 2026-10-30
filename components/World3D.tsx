@@ -1023,6 +1023,8 @@ export const World3D: React.FC<Props> = (props) => {
         x: number;
         z: number;
         on: boolean;
+        tension: number; // how hard the rope is pulling on this puller's hands (smoothed), drives the lean
+        ph: number; // gait phase: advances with the distance the rope really moves
       }
       const ringMesh = (inner: number, outer: number) => {
         const r = new THREE.Mesh(new THREE.RingGeometry(inner, outer, 28), new THREE.MeshBasicMaterial({ color: 0x64748b, side: THREE.DoubleSide, transparent: true, opacity: 0.8 }));
@@ -1071,7 +1073,7 @@ export const World3D: React.FC<Props> = (props) => {
           chair.visible = false;
           holder.add(chair);
           const col = i >> 1;
-          return { holder, ring, peg, pegMat, model: null, rig: null, stool, chair, human: null, phase: i * 0.7, sx, x: sx * (1.5 + col * 0.95), z: i % 2 === 0 ? -0.34 : 0.34, on: false };
+          return { holder, ring, peg, pegMat, model: null, rig: null, stool, chair, human: null, phase: i * 0.7, sx, x: sx * (1.5 + col * 0.95), z: i % 2 === 0 ? -0.34 : 0.34, on: false, tension: 0, ph: i * 1.9 };
         });
       const bulls = mkPool(-1);
       const bears = mkPool(1);
@@ -1243,7 +1245,6 @@ export const World3D: React.FC<Props> = (props) => {
       let ropeOffset = 0;
       let rv = 0;
       let lastKick = -1;
-      let stepPh = 0;
       const tmp = new THREE.Vector3();
       frames.push((t, dt) => {
         const A = live.current.arena;
@@ -1258,8 +1259,8 @@ export const World3D: React.FC<Props> = (props) => {
         const dtc = Math.min(dt, 0.05);
         const pulseB = 0.5 + 0.5 * Math.sin(t * 2.4);
         const pulseR = 0.5 + 0.5 * Math.sin(t * 2.4 + 2.6);
-        const fB = trading ? (1 + bias) * (0.8 + 0.15 * pulseB) : 0;
-        const fR = trading ? (1 - bias) * (0.8 + 0.15 * pulseR) : 0;
+        const fB = trading ? (1 + bias) * (0.8 + 0.1 * pulseB) : 0;
+        const fR = trading ? (1 - bias) * (0.8 + 0.1 * pulseR) : 0;
         const net = 4 * (fR - fB); // positive pulls the rope toward the Bears
         const stop = 1.87 * ropeOffset;
         const friction = 0.35 * Math.sign(rv) * Math.min(1, Math.abs(rv) * 8);
@@ -1269,16 +1270,12 @@ export const World3D: React.FC<Props> = (props) => {
         team.position.x = ropeOffset;
         // while the lobby is open the players sit; when the match runs they stand and pull
         const seatedNow = A?.phase === 'filling' || A?.phase === 'confirming' || A?.phase === 'finishable';
-        const intensity = trading ? 0.4 + Math.abs(bias) * 0.6 : A?.phase === 'filling' ? 0.15 : 0.1;
-        // the teams heave together on a rhythm; the rope tightens with each heave and goes slack between them
-        stepPh += dt * (1.5 + Math.min(8, Math.abs(rv) * 7));
         team.updateMatrixWorld(true);
         const hands: Hand[] = [];
         const armJobs: (() => void)[] = [];
         [bulls, bears].forEach((pool, pi) =>
           pool.forEach((pu) => {
             if (!pu.on) return;
-            const heavePulse = trading ? (pi === 0 ? pulseB : pulseR) : 0; // this team's own rhythm
             // waiting in the lobby: a person sits on a chair. Once the match runs, the animal stands and pulls.
             if (pu.human) { pu.human.group.visible = seatedNow; pu.chair.visible = seatedNow; }
             if (pu.model) pu.model.visible = !seatedNow;
@@ -1293,8 +1290,6 @@ export const World3D: React.FC<Props> = (props) => {
               return;
             }
             if (!pu.rig) return;
-            const winning = pi === 0 ? bias > 0.05 : bias < -0.05;
-            const losing = pi === 0 ? bias < -0.05 : bias > 0.05;
             const rg = pu.rig;
             if (seatedNow) {
               // thighs forward, shins down, hands resting on the knees
@@ -1316,28 +1311,35 @@ export const World3D: React.FC<Props> = (props) => {
               rest(rg.upR, rg.restUpR, rg.foreR, rg.restForeR, rg.legR);
               return;
             }
-            const lean = 0.1 + 0.16 * intensity + (winning ? 0.18 * Math.abs(bias) : 0) - (losing ? 0.05 * Math.abs(bias) : 0) + Math.sin(t * 5 + pu.phase) * (0.05 + Math.abs(rv) * 0.04) * intensity;
-            // heels dug in: the whole body leans back from the rope, knees bent, legs planted
             // which way is the rope moving relative to me: positive = away from the middle (my team is gaining ground)
             const away = rv * pu.sx;
             const gaining = away > 0.03;
             const dragged = away < -0.03;
-            const walk = Math.min(1, Math.abs(rv) * 1.8); // how much stepping the movement causes
-            // winners dig in and lean right back on each heave; the dragged team is pulled upright and forward
-            const back = 0.22 + lean * 0.8 + (gaining ? 0.1 + heavePulse * 0.1 : 0) - (dragged ? 0.22 + 0.1 * walk : 0) + (!gaining && !dragged ? heavePulse * 0.08 : 0);
+            const speed = Math.min(1, Math.abs(rv) * 2.2);
+            // the heave travels down the line from the front puller to the anchor, so the team pulls in a wave
+            const wave = trading ? 0.5 + 0.5 * Math.sin(t * 2.4 + (pi === 0 ? 0 : 2.6) - (Math.abs(pu.x) - 1.5) * 0.9) : 0;
+            // posture follows the real force in the hands: the harder the rope pulls, the further back the body goes
+            const pull = Math.min(0.55, pu.tension * 1.8);
+            const back = 0.16 + pull + wave * 0.1 + (gaining ? 0.08 : 0) - (dragged ? 0.18 : 0) + (trading ? 0 : -0.1);
             pu.holder.rotation.order = 'YXZ'; // turn first, then tip the whole body back about its own side-to-side axis
             pu.holder.rotation.x = -back;
-            const stepSwing = Math.sin(stepPh + pu.phase * 1.7);
-            rg.hips.position.y = rg.hipsY - 0.08 - (dragged ? 0.05 : 0) - heavePulse * 0.03;
+            // steps happen only when the rope has moved far enough: half a cycle per half-metre of travel, so feet plant when it is still
+            pu.ph += (away * dtc * Math.PI) / 0.5;
+            const stride = Math.sin(pu.ph);
+            const lift = Math.cos(pu.ph);
+            const stepAmt = speed; // 0 = standing planted, 1 = walking
+            // planted stance: one foot a little forward, knees bent more when the pull is strong
+            const bend = Math.min(0.3, 0.1 + pull * 0.4 + wave * 0.06);
+            rg.hips.position.y = rg.hipsY - 0.04 - bend * 0.25 - (dragged ? 0.02 : 0);
             rg.hips.rotation.x = 0;
-            // feet shuffle in time with the rope's speed: backwards steps for winners, short stumbles forward for the dragged
-            rg.upLegL.rotation.x = 0.15 + stepSwing * walk * (gaining ? 0.55 : 0.4);
-            rg.upLegR.rotation.x = 0.15 - stepSwing * walk * (gaining ? 0.55 : 0.4);
-            rg.legL.rotation.x = -0.2 - Math.max(0, -stepSwing) * walk * 0.5;
-            rg.legR.rotation.x = -0.2 - Math.max(0, stepSwing) * walk * 0.5;
-            rg.spine.rotation.x = dragged ? 0.12 : 0;
-            rg.chest.rotation.x = dragged ? 0.1 : 0;
-            pu.holder.position.y = Math.abs(stepSwing) * 0.04 * walk + heavePulse * 0.01;
+            rg.upLegL.rotation.x = 0.22 + bend * 0.5 + stride * stepAmt * 0.55;
+            rg.upLegR.rotation.x = -0.05 + bend * 0.5 - stride * stepAmt * 0.55;
+            rg.legL.rotation.x = -0.2 - bend * 0.7 - Math.max(0, lift) * stepAmt * 0.7;
+            rg.legR.rotation.x = -0.2 - bend * 0.7 - Math.max(0, -lift) * stepAmt * 0.7;
+            // the torso bends into each heave; the dragged team is yanked forward
+            rg.spine.rotation.x = (dragged ? 0.14 : 0) - wave * 0.05 * (1 - speed);
+            rg.chest.rotation.x = (dragged ? 0.1 : 0) - wave * 0.05 * (1 - speed);
+            pu.holder.position.y = Math.abs(stride) * 0.035 * stepAmt;
             pu.holder.updateMatrixWorld(true);
             // both hands grip the rope: each hand is a spring on one rope node, aimed from this puller's own shoulder
             const grab = (up: THREE.Object3D, restUp: THREE.Vector3, fore: THREE.Object3D, restFore: THREE.Vector3, forward: number) => {
@@ -1349,6 +1351,8 @@ export const World3D: React.FC<Props> = (props) => {
               const ty = Math.max(0.85, Math.min(1.3, shW.y - 0.2));
               hands.push({ idx, tx, ty });
               armJobs.push(() => {
+                const disp = Math.hypot(tx - rx[idx], ty - ry[idx]); // how far the rope is dragging this hand from where the body wants it
+                pu.tension += (Math.min(0.35, disp) - pu.tension) * 0.5 * Math.min(1, dtc * 8);
                 const grip = new THREE.Vector3(rx[idx], ry[idx], 0);
                 tmp.copy(shW).lerp(grip, 0.5);
                 tmp.y -= 0.1;
