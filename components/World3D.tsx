@@ -887,7 +887,7 @@ export const World3D: React.FC<Props> = (props) => {
       roomShell(w, d, 0x161d30, 0x0f1628);
       const ROPE_SX = 2.2; // the rope model is 8 long: stretched to 17.6 so up to ten columns can reach it
       const ROPE_SY = 1.15;
-      const ROPE_DROP = 1.03; // the middle of the rope lies near the floor; the ends rise to the pullers' hands
+      const ROPE_DROP = 0.0; // the middle of the rope lies near the floor; the ends rise to the pullers' hands
       const SEG = 0.5 * ROPE_SX; // world length of one rope bone
       const MAXSEATS = 20;
 
@@ -924,7 +924,7 @@ export const World3D: React.FC<Props> = (props) => {
       // plain stand-in until the model is loaded (or if it cannot be)
       const plainRope = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, SEG * 16, 8), stdMat(0xc9a66b, 0.95));
       plainRope.rotation.z = Math.PI / 2;
-      plainRope.position.y = 0.3;
+      plainRope.position.y = ROPE_SY;
       team.add(plainRope);
       const plainFlag = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.4, 0.08), stdMat(0xdc2626, 0.5));
       plainFlag.position.y = 0.4;
@@ -1087,15 +1087,15 @@ export const World3D: React.FC<Props> = (props) => {
       // rope sag: the middle hangs, tension straightens it
       // The rope lies near the floor in the middle and climbs to the pullers' hands within two bones, then runs level.
       // `ropeLift` is how steeply it climbs: a slack rope lies lower, a taut one rises.
-      let ropeLift = 0.9;
-      const bend = (k: number) => (k === 0 ? ropeLift : k === 2 ? -ropeLift : 0);
+      let ropeLift = 0.02;
+      const bend = () => ropeLift; // a taut rope: level at hand height with only a slight dip in the middle
       const ropeYAt = (xl: number) => {
         let ang = 0;
         let y = 1;
         let rem = Math.abs(xl) / SEG;
         for (let k = 0; k < 8 && rem > 0; k++) {
           const step = Math.min(1, rem);
-          ang += bend(k);
+          ang += bend();
           y += 0.5 * Math.sin(ang) * step;
           rem -= step;
         }
@@ -1217,6 +1217,7 @@ export const World3D: React.FC<Props> = (props) => {
       let ropeOffset = 0;
       let rv = 0;
       let lastKick = -1;
+      let stepPh = 0;
       const tmp = new THREE.Vector3();
       frames.push((t, dt) => {
         const A = live.current.arena;
@@ -1235,10 +1236,21 @@ export const World3D: React.FC<Props> = (props) => {
         // while the lobby is open the players sit; when the match runs they stand and pull
         const seatedNow = A?.phase === 'filling' || A?.phase === 'confirming' || A?.phase === 'finishable';
         const intensity = trading ? 0.4 + Math.abs(bias) * 0.6 : A?.phase === 'filling' ? 0.15 : 0.1;
-        ropeLift = 0.55 + 0.4 * Math.min(1, intensity + Math.abs(bias) * 0.3); // tension lifts the rope off the floor
+        // the teams heave together on a rhythm; the rope tightens with each heave and goes slack between them
+        const heavePulse = trading ? Math.max(0, Math.sin(t * 2.4)) : 0;
+        stepPh += dt * (1.5 + Math.min(8, Math.abs(rv) * 7));
+        const taut = Math.min(1, intensity + Math.abs(bias) * 0.3 + heavePulse * 0.25 + Math.min(0.3, Math.abs(rv) * 0.3));
+        ropeLift = 0.006 + 0.032 * (1 - taut); // more tension, flatter rope
         if (ropeBones) {
-          ropeBones.l.forEach((b, k) => { b.rotation.z = -bend(k); });
-          ropeBones.r.forEach((b, k) => { b.rotation.z = bend(k); });
+          // past the last puller on each side the rope curves down and its ends lie on the floor
+          const counts = [1, 2].map((tm) => (A?.players ?? []).filter((p) => p.team === tm).length);
+          const cols = Math.max(1, Math.ceil(Math.max(...counts, 1) / 2));
+          const tailStart = Math.min(7, Math.ceil((1.5 + (cols - 1) * 0.95 + 0.7) / SEG));
+          const left = Math.max(1, 8 - tailStart);
+          const droop = Math.min(0.8, 3.4 / ((left * (left + 1)) / 2)); // fewer bones left past the last puller: drop faster to still reach the floor
+          const tail = (k: number) => (k >= tailStart ? droop * (k - tailStart + 1) : 0);
+          ropeBones.l.forEach((b, k) => { b.rotation.z = -(bend() - tail(k)); });
+          ropeBones.r.forEach((b, k) => { b.rotation.z = bend() - tail(k); });
         }
         team.updateMatrixWorld(true);
         [bulls, bears].forEach((pool, pi) =>
@@ -1283,16 +1295,26 @@ export const World3D: React.FC<Props> = (props) => {
             }
             const lean = 0.1 + 0.16 * intensity + (winning ? 0.18 * Math.abs(bias) : 0) - (losing ? 0.05 * Math.abs(bias) : 0) + Math.sin(t * 5 + pu.phase) * (0.05 + Math.abs(rv) * 0.04) * intensity;
             // heels dug in: the whole body leans back from the rope, knees bent, legs planted
-            const back = 0.25 + lean * 0.9;
+            // which way is the rope moving relative to me: positive = away from the middle (my team is gaining ground)
+            const away = rv * pu.sx;
+            const gaining = away > 0.03;
+            const dragged = away < -0.03;
+            const walk = Math.min(1, Math.abs(rv) * 1.8); // how much stepping the movement causes
+            // winners dig in and lean right back on each heave; the dragged team is pulled upright and forward
+            const back = 0.22 + lean * 0.8 + (gaining ? 0.1 + heavePulse * 0.1 : 0) - (dragged ? 0.22 + 0.1 * walk : 0) + (!gaining && !dragged ? heavePulse * 0.08 : 0);
             pu.holder.rotation.order = 'YXZ'; // turn first, then tip the whole body back about its own side-to-side axis
             pu.holder.rotation.x = -back;
-            rg.hips.position.y = rg.hipsY - 0.08;
+            const stepSwing = Math.sin(stepPh + pu.phase * 1.7);
+            rg.hips.position.y = rg.hipsY - 0.08 - (dragged ? 0.05 : 0) - heavePulse * 0.03;
             rg.hips.rotation.x = 0;
-            rg.upLegL.rotation.x = 0.15; rg.upLegR.rotation.x = 0.15;
-            rg.legL.rotation.x = -0.2; rg.legR.rotation.x = -0.2;
-            rg.spine.rotation.x = 0;
-            rg.chest.rotation.x = 0;
-            pu.holder.position.y = Math.abs(Math.sin(t * 5 + pu.phase)) * 0.025 * intensity;
+            // feet shuffle in time with the rope's speed: backwards steps for winners, short stumbles forward for the dragged
+            rg.upLegL.rotation.x = 0.15 + stepSwing * walk * (gaining ? 0.55 : 0.4);
+            rg.upLegR.rotation.x = 0.15 - stepSwing * walk * (gaining ? 0.55 : 0.4);
+            rg.legL.rotation.x = -0.2 - Math.max(0, -stepSwing) * walk * 0.5;
+            rg.legR.rotation.x = -0.2 - Math.max(0, stepSwing) * walk * 0.5;
+            rg.spine.rotation.x = dragged ? 0.12 : 0;
+            rg.chest.rotation.x = dragged ? 0.1 : 0;
+            pu.holder.position.y = Math.abs(stepSwing) * 0.04 * walk + heavePulse * 0.01;
             pu.holder.updateMatrixWorld(true);
             // both hands on the rope, measured from this puller's own shoulders (so leaning back keeps the grip in reach)
             const reach = (up: THREE.Object3D, restUp: THREE.Vector3, fore: THREE.Object3D, restFore: THREE.Vector3, forward: number) => {
