@@ -1071,7 +1071,7 @@ export const World3D: React.FC<Props> = (props) => {
           chair.visible = false;
           holder.add(chair);
           const col = i >> 1;
-          return { holder, ring, peg, pegMat, model: null, rig: null, stool, chair, human: null, phase: i * 0.7, sx, x: sx * (1.5 + col * 0.95), z: i % 2 === 0 ? -0.45 : 0.45, on: false };
+          return { holder, ring, peg, pegMat, model: null, rig: null, stool, chair, human: null, phase: i * 0.7, sx, x: sx * (1.5 + col * 0.95), z: i % 2 === 0 ? -0.34 : 0.34, on: false };
         });
       const bulls = mkPool(-1);
       const bears = mkPool(1);
@@ -1195,7 +1195,7 @@ export const World3D: React.FC<Props> = (props) => {
             pu.peg.visible = !pu.rig;
             pu.pegMat.color.setHex(pi === 0 ? 0x10b981 : 0xf43f5e);
             // face the rope, each row turned a little toward it
-            pu.holder.rotation.y = (pu.sx < 0 ? Math.PI / 2 : -Math.PI / 2) - pu.sx * 0.3 * Math.sign(pu.z);
+            pu.holder.rotation.y = (pu.sx < 0 ? Math.PI / 2 : -Math.PI / 2) - pu.sx * 0.5 * Math.sign(pu.z); // turned toward the rope
           });
         });
         // the neutral lobby line (before the lock) or the empty seats
@@ -1294,17 +1294,22 @@ export const World3D: React.FC<Props> = (props) => {
             rg.chest.rotation.x = 0;
             pu.holder.position.y = Math.abs(Math.sin(t * 5 + pu.phase)) * 0.025 * intensity;
             pu.holder.updateMatrixWorld(true);
+            // both hands on the rope, measured from this puller's own shoulders (so leaning back keeps the grip in reach)
             const reach = (up: THREE.Object3D, restUp: THREE.Vector3, fore: THREE.Object3D, restFore: THREE.Vector3, forward: number) => {
-              const gx = pu.x - pu.sx * forward;
-              const grip = new THREE.Vector3(gx, ropeYAt(gx) + Math.sin(t * 6 + pu.phase) * 0.02 * intensity, 0);
+              const sh = up.getWorldPosition(new THREE.Vector3());
+              team.worldToLocal(sh);
+              const gx = sh.x - pu.sx * forward;
+              const grip = new THREE.Vector3(gx, ropeYAt(gx), 0);
               team.localToWorld(grip);
-              tmp.set(pu.x + pu.sx * 0.25, ropeYAt(gx) - 0.25, Math.sign(pu.z) * 0.25);
-              team.localToWorld(tmp);
+              const shW = up.getWorldPosition(new THREE.Vector3());
+              // the elbow sits halfway to the hand, dropped and pushed out a little
+              tmp.copy(shW).lerp(grip, 0.5);
+              tmp.y -= 0.1;
               aim(up, restUp, tmp);
               aim(fore, restFore, grip);
             };
-            reach(rg.upL, rg.restUpL, rg.foreL, rg.restForeL, 0.2);
-            reach(rg.upR, rg.restUpR, rg.foreR, rg.restForeR, 0.55);
+            reach(rg.upL, rg.restUpL, rg.foreL, rg.restForeL, 0.3);
+            reach(rg.upR, rg.restUpR, rg.foreR, rg.restForeR, 0.62);
           }),
         );
       });
