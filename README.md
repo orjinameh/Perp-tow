@@ -57,14 +57,14 @@ See `SECURITY.md`. In short: one person with several wallets could collude acros
 
 ## Demo
 
-Demo video: https://youtu.be/0ZNcl_dnW_k
+[![Perp Tug of War demo video](https://img.youtube.com/vi/0ZNcl_dnW_k/hqdefault.jpg)](https://youtu.be/0ZNcl_dnW_k)
 
-The step-by-step script used to record it is in `DEMO.md`.
+Click the picture to watch the demo on YouTube. The script used to record it is in `DEMO.md`.
 
 ## X posts
 
 Posts about this MVP, tagging @DreamDEXSomnia:
 
-1. https://x.com/orjinamehola/status/2121102433694982403
-2. https://x.com/orjinamehola/status/2121102944959680672
-3. https://x.com/orjinamehola/status/2121103167173583021
+1. [Post 1: the idea and the demo](https://x.com/orjinamehola/status/2121102433694982403)
+2. [Post 2: fair teams, scored on chain](https://x.com/orjinamehola/status/2121102944959680672)
+3. [Post 3: bring your own bot, copy traders](https://x.com/orjinamehola/status/2121103167173583021)
