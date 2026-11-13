@@ -92,8 +92,8 @@ export const LeadersPanel: React.FC<{ markets: MarketQueueData[]; wallet: GameWa
               Copying {short(copy.follow.leader)} on {copy.follow.ticker}
               {copy.leaderNow ? ` · they are ${copy.leaderNow}` : ''}
             </span>
-            <button onClick={() => copy.stop()} className="rounded-lg border border-emerald-500/40 px-3 py-1 font-semibold hover:bg-emerald-500/10">
-              Stop copying
+            <button onClick={() => void copy.stop(undefined, true)} className="rounded-lg border border-emerald-500/40 px-3 py-1 font-semibold hover:bg-emerald-500/10" title="Stop copying and close the position the copy opened">
+              Stop copying and close
             </button>
           </div>
         )}
@@ -157,6 +157,12 @@ export const LeadersPanel: React.FC<{ markets: MarketQueueData[]; wallet: GameWa
             {copy.events.map((e) => (
               <div key={e.at + e.text} className={`text-[11px] break-all ${e.error ? 'text-amber-300' : 'text-zinc-400'}`}>
                 {new Date(e.at).toLocaleTimeString()} · {e.text}
+                {e.hash && (
+                  <>
+                    {' · '}
+                    <a className="underline" target="_blank" rel="noreferrer" href={`https://explorer.testnet.somnia.network/tokyo/tx/${e.hash}`}>tx {e.hash}</a>
+                  </>
+                )}
               </div>
             ))}
           </div>

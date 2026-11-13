@@ -5,6 +5,7 @@ import type { GameWallet } from './useGameWallet';
 import { NOMINAL_STAKE_USD } from './gameTag';
 import { getPending } from './pending';
 import { leaderDirection } from './leaders';
+import { logActivity } from './activity';
 
 export interface Follow {
   leader: string;
@@ -13,6 +14,7 @@ export interface Follow {
   copyCurrent: boolean; // also open their current position straight away
   baseline: 'long' | 'short' | 'flat'; // what they held when you started
   armed: boolean; // true once there is something to mirror
+  opened?: boolean; // true while a position opened by this copy is still open, so Stop can close it
   startedAt: number;
 }
 
@@ -20,6 +22,7 @@ export interface CopyEvent {
   at: number;
   text: string;
   error?: boolean;
+  hash?: string; // full transaction hash, shown as a link instead of being cut inside the text
 }
 
 const KEY = 'tow.copy';
@@ -56,7 +59,7 @@ export function useCopyTrade(wallet: GameWallet) {
   const ref = useRef<Follow | null>(null);
   ref.current = follow;
 
-  const log = useCallback((text: string, error = false) => setEvents((e) => [{ at: Date.now(), text, error }, ...e].slice(0, 8)), []);
+  const log = useCallback((text: string, error = false, hash?: string) => setEvents((e) => [{ at: Date.now(), text, error, hash }, ...e].slice(0, 8)), []);
 
   useEffect(() => {
     setFollow(read());
@@ -76,13 +79,31 @@ export function useCopyTrade(wallet: GameWallet) {
     [log],
   );
 
+  /**
+   * Stops copying. With closePosition, a position that this copy opened is closed too (never one from a match seat).
+   * The automatic stop after repeated failures leaves it alone, because the close would probably fail the same way.
+   */
   const stop = useCallback(
-    (why?: string) => {
+    async (why?: string, closePosition = false) => {
+      const f = ref.current;
       write(null);
       setFollow(null);
       if (why) log(why, true);
+      if (!closePosition || !f?.opened || !wallet.key || !wallet.address) return;
+      const address = wallet.address;
+      if (getPending().some((p) => p.ticker === f.ticker && p.address.toLowerCase() === address.toLowerCase())) {
+        log(`Stopped copying. Your ${f.ticker} position is shared with your match seat, so it was left open.`, true);
+        return;
+      }
+      try {
+        const t = await import('./trading');
+        log(`Stopped copying. Closing your ${f.ticker} position…`);
+        log(await t.closeMyPosition(wallet.key, address, f.ticker));
+      } catch (e) {
+        log(`Stopped copying, but closing your ${f.ticker} position failed: ${e instanceof Error ? e.message.split('\n')[0] : String(e)}. Use Close position on the home screen.`, true);
+      }
     },
-    [log],
+    [log, wallet.key, wallet.address],
   );
 
   useEffect(() => {
@@ -118,18 +139,32 @@ export function useCopyTrade(wallet: GameWallet) {
         if (mine !== 'flat') {
           log(`They are ${theirs}. Closing your ${mine}…`);
           log(await t.closeMyPosition(key, address, f.ticker));
+          const closed = { ...(ref.current ?? f), opened: false };
+          write(closed);
+          setFollow(closed);
         }
         if (theirs !== 'flat') {
           log(`Opening your ${theirs} to match…`);
           const r = await t.enterMatch({ key, address, ticker: f.ticker, side: theirs === 'long' ? 'bulls' : 'bears', matchNumber: 0, stakeUsd: NOMINAL_STAKE_USD });
-          log(`Opened ${theirs}: ${r.filledQuantity || r.quantity} ${f.ticker}${r.txHash ? ` · tx ${r.txHash}` : ''}`);
+          const qty = r.filledQuantity || r.quantity;
+          log(`Opened ${theirs}: ${qty} ${f.ticker}`, false, r.txHash ?? undefined);
+          logActivity({
+            signer: address,
+            kind: 'trade',
+            title: `Copied ${f.leader.slice(0, 6)}…${f.leader.slice(-4)}: opened ${theirs} ${qty} ${f.ticker}`,
+            hash: r.txHash ?? undefined,
+            status: 'confirmed',
+          });
+          const opened = { ...(ref.current ?? f), opened: true };
+          write(opened);
+          setFollow(opened);
         }
         fails.current = 0;
       } catch (e) {
         fails.current += 1;
         const msg = e instanceof Error ? e.message.split('\n')[0] : String(e);
         log(`Copy attempt failed (${fails.current}/3): ${msg}`, true);
-        if (fails.current >= 3) stop('Stopped after 3 failed attempts. Check your margin and STT, then start again.');
+        if (fails.current >= 3) void stop('Stopped after 3 failed attempts. Check your margin and STT, then start again.');
       } finally {
         busy.current = false;
       }

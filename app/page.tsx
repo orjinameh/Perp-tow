@@ -222,8 +222,8 @@ export default function TugOfWarApp() {
         onOpenSpecs={() => setIsSpecsOpen(true)}
         isMuted={isMuted}
         onToggleMute={handleToggleMute}
-        view={squadsOn ? undefined : view}
-        onToggleView={squadsOn ? undefined : () => switchView(view === 'world' ? 'classic' : 'world')}
+        view={view}
+        onToggleView={() => switchView(view === 'world' ? 'classic' : 'world')}
         onOpenLeaders={live.status === 'ok' ? () => setLeadersOpen(true) : undefined}
         onOpenHistory={live.status === 'ok' || squadsOn ? () => setHistoryOpen(true) : undefined}
       />
@@ -237,8 +237,16 @@ export default function TugOfWarApp() {
         <div className="border-b border-emerald-500/30 bg-emerald-950/30 px-4 py-2 text-center text-xs text-emerald-200">
           Copying {copy.follow.leader.slice(0, 6)}…{copy.follow.leader.slice(-4)} on {copy.follow.ticker}
           {copy.leaderNow ? ` · they are ${copy.leaderNow}` : ''}
-          {copy.events[0] ? ` · ${copy.events[0].text.slice(0, 90)}` : ''}{' '}
-          <button onClick={() => copy.stop()} className="ml-2 underline">Stop</button>
+          {copy.events[0] ? ` · ${copy.events[0].text}` : ''}
+          {copy.events[0]?.hash && (
+            <>
+              {' · '}
+              <a className="underline break-all" target="_blank" rel="noreferrer" href={`https://explorer.testnet.somnia.network/tokyo/tx/${copy.events[0].hash}`} title={copy.events[0].hash}>
+                tx {copy.events[0].hash.slice(0, 10)}…{copy.events[0].hash.slice(-8)}
+              </a>
+            </>
+          )}{' '}
+          <button onClick={() => void copy.stop(undefined, true)} className="ml-2 underline" title="Stop copying and close the position the copy opened">Stop and close</button>
         </div>
       )}
       {historyOpen && (squadsOn || live.status === 'ok') && <HistoryPanel markets={live.markets} wallet={wallet} onClose={() => setHistoryOpen(false)} />}
@@ -255,7 +263,7 @@ export default function TugOfWarApp() {
       />}
 
       {/* Dynamic Screen Viewport */}
-      {squadsOn && <SquadsGame wallet={wallet} live={live} />}
+      {squadsOn && <SquadsGame wallet={wallet} live={live} view={view === 'world' ? 'world' : 'screens'} onViewChange={(v) => switchView(v === 'world' ? 'world' : 'classic')} />}
       {!squadsOn && worldActive && (
         <div className="relative h-[calc(100dvh-9rem)] min-h-[460px] w-full [@media(pointer:coarse)_and_(orientation:landscape)_and_(max-height:520px)]:fixed [@media(pointer:coarse)_and_(orientation:landscape)_and_(max-height:520px)]:inset-0 [@media(pointer:coarse)_and_(orientation:landscape)_and_(max-height:520px)]:z-40 [@media(pointer:coarse)_and_(orientation:landscape)_and_(max-height:520px)]:h-auto [@media(pointer:coarse)_and_(orientation:landscape)_and_(max-height:520px)]:min-h-0">
           <button

@@ -42,7 +42,7 @@ type Hex = `0x${string}`;
 const short = (a: string) => `${a.slice(0, 6)}…${a.slice(-4)}`;
 const mmss = (s: number) => `${Math.floor(Math.max(0, s) / 60)}:${String(Math.max(0, Math.floor(s) % 60)).padStart(2, '0')}`;
 
-export function SquadsGame({ wallet, live }: { wallet: GameWallet; live: LiveMarkets }) {
+export function SquadsGame({ wallet, live, view: viewProp, onViewChange }: { wallet: GameWallet; live: LiveMarkets; view?: 'world' | 'screens'; onViewChange?: (v: 'world' | 'screens') => void }) {
   const progress = useProgress();
   const [ticker, setTicker] = useState('BTC');
   const [params, setParams] = useState<SquadParams | null>(null);
@@ -69,7 +69,13 @@ export function SquadsGame({ wallet, live }: { wallet: GameWallet; live: LiveMar
   const [openModal, setOpenModal] = useState(false);
   const [sizeText, setSizeText] = useState('4');
   const [notice, setNotice] = useState<{ title: string; body: React.ReactNode } | null>(null);
-  const [view, setView] = useState<'world' | 'screens'>('world');
+  // The top bar switches between the 3D world and the plain screens; the same state also lives here if no parent controls it.
+  const [viewState, setViewState] = useState<'world' | 'screens'>('world');
+  const view = viewProp ?? viewState;
+  const setView = (v: 'world' | 'screens') => {
+    setViewState(v);
+    onViewChange?.(v);
+  };
   const [room, setRoom] = useState<WorldRoom>({ kind: 'hub' });
   const [draftNumber, setDraftNumber] = useState<number | null>(null);
 
