@@ -57,7 +57,9 @@ See `SECURITY.md`. In short: one person with several wallets could collude acros
 
 ## Demo
 
-A step-by-step script for recording the demo is in `DEMO.md`.
+Demo video: https://youtu.be/0ZNcl_dnW_k
+
+The step-by-step script used to record it is in `DEMO.md`.
 
 ## X posts
 
