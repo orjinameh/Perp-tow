@@ -1,6 +1,16 @@
 # Perp Tug of War
 
-Bulls against Bears on real dreamDEX perps, in a 3D arena. You join a match room, you are put on team Bulls or team Bears at random, and everyone trades real perps from their own vault with the same play money. The team whose players gained more on average wins the other team's stakes. Built for the dreamDEX Perps Builder Bounty on the Somnia Hideki testnet. Testnet only: nothing here is real money.
+Bulls against Bears on real dreamDEX perps, in a 3D arena. You join a match room, you are put on team Bulls or team Bears at random, and everyone trades real perps from their own vault with the same play money. The team whose players gained more on average wins the other team's stakes. Built for the dreamDEX Perps Builder Bounty (MVP track) on the Somnia Tokyo testnet (the dreamDEX testnet that the markets SDK calls Hideki). Testnet only: nothing here is real money.
+
+## Who it is for
+
+- **Traders who want a game, not a chart:** a short team match where you trade real perps with the same play money as everyone else, so skill decides the result.
+- **Bot builders:** paste a script into the app and it trades real orders from your vault, sandboxed so it never sees your key.
+- **Followers:** the Leaders tab lets you copy the direction of a top account on a market from your own wallet (a few seconds late, while the tab is open), and Stop closes the position the copy opened.
+
+**Categories:** consumer perps (the match game), with bots and trader tools built in (your own bot box, copy trading).
+
+Every order in the app is a real market order on dreamDEX perps on the Tokyo testnet, signed by the player's own game wallet or vault.
 
 ## How a match works
 
