@@ -61,8 +61,8 @@ A step-by-step script for recording the demo is in `DEMO.md`.
 
 ## X posts
 
-Short drafts, edit and post as you like. Tag @DreamDEXSomnia. Do not include contract addresses or keys.
+Posts about this MVP, tagging @DreamDEXSomnia:
 
-1. Built Perp Tug of War on @DreamDEXSomnia: you sit in a 3D room, get randomly drafted as a Bull or a Bear, and trade real perps from your own on-chain vault. Team with the better average gain wins the pot. #Somnia
-2. Teams can be 15 v 5 and it still works: scoring is average gain per head, computed on chain from dreamDEX margin equity. Anyone can settle and check it.
-3. Bring your own bot: paste a script in the app and it trades real orders from your vault, sandboxed so it never sees your key.
+1. https://x.com/orjinamehola/status/2121102433694982403
+2. https://x.com/orjinamehola/status/2121102944959680672
+3. https://x.com/orjinamehola/status/2121103167173583021
